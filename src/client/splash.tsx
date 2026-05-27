@@ -31,8 +31,10 @@ export const Splash = () => {
   const [ctxLoading, setCtxLoading] = useState(false);
   const [decisionMsg, setDecisionMsg] = useState<string | null>(null);
   const [showRules, setShowRules] = useState(false);
+  const [showAI, setShowAI] = useState(false);
   const [rulesJson, setRulesJson] = useState('');
   const [rulesMsg, setRulesMsg] = useState<string | null>(null);
+  const [aiMsg, setAiMsg] = useState<string | null>(null);
   const [picker, setPicker] = useState<{
     itemId: string;
     options: string[];
@@ -145,6 +147,7 @@ export const Splash = () => {
 
   const handleToggleRules = useCallback(async () => {
     if (!showRules) {
+      if (showAI) setShowAI(false);
       try {
         const res = await fetch('/api/rules');
         const data = await res.json();
@@ -155,7 +158,7 @@ export const Splash = () => {
       }
     }
     setShowRules(!showRules);
-  }, [showRules]);
+  }, [showRules, showAI]);
 
   const handleResetRules = useCallback(async () => {
     try {
@@ -244,6 +247,19 @@ export const Splash = () => {
             </span>
           )}
           <button
+            onClick={() => {
+              setShowAI(!showAI);
+              if (showRules) setShowRules(false);
+            }}
+            className={`text-xs px-2 py-1 rounded cursor-pointer transition-colors ${
+              showAI
+                ? 'bg-purple-500/20 text-purple-400'
+                : 'text-gray-600 hover:text-gray-400'
+            }`}
+          >
+            AI
+          </button>
+          <button
             onClick={handleToggleRules}
             className={`text-xs px-2 py-1 rounded cursor-pointer transition-colors ${
               showRules
@@ -297,6 +313,63 @@ export const Splash = () => {
                 Save
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* AI config panel */}
+      {showAI && (
+        <div className="px-4 py-3 border-b border-gray-800 bg-gray-900/50 shrink-0">
+          <div className="text-xs font-medium text-gray-300 mb-2">
+            AI Enhancement
+          </div>
+          <div className="flex items-center gap-1.5">
+            <select
+              id="ai-provider"
+              className="px-1.5 py-1 rounded bg-gray-800 border border-gray-700 text-[10px] text-gray-300 focus:outline-none cursor-pointer shrink-0"
+            >
+              <option value="anthropic">Anthropic</option>
+              <option value="openai">OpenAI</option>
+              <option value="custom">Custom</option>
+            </select>
+            <input
+              className="flex-1 px-2 py-1 rounded bg-gray-800 border border-gray-700 text-[10px] text-gray-300 font-mono placeholder-gray-600 focus:outline-none focus:border-purple-500/50"
+              placeholder="API key"
+              type="password"
+              id="ai-key-input"
+            />
+            <input
+              className="w-24 px-2 py-1 rounded bg-gray-800 border border-gray-700 text-[10px] text-gray-300 font-mono placeholder-gray-600 focus:outline-none focus:border-purple-500/50"
+              placeholder="Model"
+              id="ai-model-input"
+            />
+            <button
+              onClick={async () => {
+                const provider = (document.getElementById('ai-provider') as HTMLSelectElement)?.value ?? 'anthropic';
+                const apiKey = (document.getElementById('ai-key-input') as HTMLInputElement)?.value?.trim();
+                const model = (document.getElementById('ai-model-input') as HTMLInputElement)?.value?.trim();
+                if (apiKey) {
+                  await fetch('/api/ai-config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ provider, apiKey, model: model || undefined }),
+                  });
+                  setAiMsg('Saved');
+                  setTimeout(() => setAiMsg(null), 3000);
+                }
+              }}
+              className="text-[10px] px-2 py-1 rounded bg-purple-600 hover:bg-purple-500 text-white cursor-pointer shrink-0"
+            >
+              Save
+            </button>
+          </div>
+          <div className="flex items-center justify-between mt-2">
+            <span className="text-[10px] text-gray-600">
+              Leave empty to use rule-engine only
+            </span>
+            {aiMsg && (
+              <span className="text-[10px] text-purple-400">{aiMsg}</span>
+            )}
           </div>
         </div>
       )}
@@ -411,10 +484,10 @@ export const Splash = () => {
                           </div>
                         </div>
 
-                        {/* AI summary */}
-                        <div className="p-3 rounded-lg bg-blue-500/5 border border-blue-500/20">
-                          <div className="text-[10px] text-blue-400 font-medium mb-1">
-                            AI SUMMARY
+                        {/* Summary */}
+                        <div className={`p-3 rounded-lg border ${modContext.meta.aiAssisted ? 'bg-purple-500/5 border-purple-500/20' : 'bg-blue-500/5 border-blue-500/20'}`}>
+                          <div className={`text-[10px] font-medium mb-1 ${modContext.meta.aiAssisted ? 'text-purple-400' : 'text-blue-400'}`}>
+                            {modContext.meta.aiAssisted ? 'AI ANALYSIS' : 'ANALYSIS'}
                           </div>
                           <p className="text-xs text-gray-300 leading-relaxed">
                             {modContext.contentSummary.shortSummary}

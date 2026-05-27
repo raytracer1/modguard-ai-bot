@@ -1,5 +1,6 @@
 import type { ModContext, ModRecommendation, RuleMatch } from '../../shared/types';
 import { analyzeContent, generateContentSummary, loadCustomRules } from './rule-engine';
+import { enhanceWithAI } from './ai-enhance';
 
 export interface QueueItemInput {
   id: string;
@@ -84,6 +85,26 @@ export async function generateModContext(
   const contentSummary = generateContentSummary(item.title, item.body, ruleMatches);
   const recommendation = generateRecommendation(ruleMatches);
 
+  // AI enhancement (optional, falls back silently)
+  let aiAssisted = false;
+  let aiSummary: string | null = null;
+  try {
+    const aiResult = await enhanceWithAI({
+      title: item.title,
+      body: item.body,
+      author: item.author,
+      matchedRules: ruleMatches
+        .filter((m) => m.matched)
+        .map((m) => ({ name: m.rule.title, severity: m.severity })),
+    });
+    if (aiResult) {
+      aiAssisted = true;
+      aiSummary = aiResult.summary;
+    }
+  } catch {
+    // AI failed silently, use rule-engine output
+  }
+
   return {
     queueItem: item,
     userProfile: {
@@ -96,7 +117,9 @@ export async function generateModContext(
       previousViolations: 0,
       recentPosts: [],
     },
-    contentSummary,
+    contentSummary: aiSummary
+      ? { ...contentSummary, shortSummary: aiSummary }
+      : contentSummary,
     ruleMatches,
     similarCases: [],
     recommendation,
@@ -105,7 +128,7 @@ export async function generateModContext(
       generatedAt: new Date().toISOString(),
       analysisTimeMs: Date.now() - startTime,
       isMockData: false,
-      aiAssisted: false,
+      aiAssisted,
     },
   };
 }

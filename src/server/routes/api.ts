@@ -236,6 +236,26 @@ api.post('/decision', async (c) => {
   }
 });
 
+// ── AI key ──
+
+api.post('/ai-config', async (c) => {
+  try {
+    const { provider, apiKey, model, endpoint } = await c.req.json<{
+      provider: string;
+      apiKey: string;
+      model?: string;
+      endpoint?: string;
+    }>();
+    await redis.set(
+      'mg:ai-config',
+      JSON.stringify({ provider, apiKey: apiKey.trim(), model, endpoint })
+    );
+    return c.json({ status: 'ok' }, 200);
+  } catch {
+    return c.json({ status: 'error' }, 500);
+  }
+});
+
 // ── Custom rules configuration ──
 
 api.get('/rules', async (c) => {
