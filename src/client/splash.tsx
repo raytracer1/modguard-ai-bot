@@ -32,7 +32,9 @@ export const Splash = () => {
   const [decisionMsg, setDecisionMsg] = useState<string | null>(null);
   const [showRules, setShowRules] = useState(false);
   const [showAI, setShowAI] = useState(false);
-  const [rulesJson, setRulesJson] = useState('');
+  const [editableRules, setEditableRules] = useState<Array<{
+    name: string; patterns: string; severity: string; description: string; enabled: boolean;
+  }>>([]);
   const [rulesMsg, setRulesMsg] = useState<string | null>(null);
   const [aiMsg, setAiMsg] = useState<string | null>(null);
   const [picker, setPicker] = useState<{
@@ -151,11 +153,17 @@ export const Splash = () => {
       try {
         const res = await fetch('/api/rules');
         const data = await res.json();
-        setRulesJson(JSON.stringify(data.rules || [], null, 2));
+        setEditableRules(
+          (data.rules || []).map((r: Record<string, unknown>) => ({
+            name: String(r.name ?? ''),
+            patterns: Array.isArray(r.patterns) ? r.patterns.join('\n') : '',
+            severity: String(r.severity ?? 'medium'),
+            description: String(r.description ?? ''),
+            enabled: r.enabled !== false,
+          }))
+        );
         setRulesMsg(null);
-      } catch {
-        setRulesJson('[\n  \n]');
-      }
+      } catch { /* ignore */ }
     }
     setShowRules(!showRules);
   }, [showRules, showAI]);
@@ -167,10 +175,17 @@ export const Splash = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ rules: [] }),
       });
-      // Reload to get defaults
       const res = await fetch('/api/rules');
       const data = await res.json();
-      setRulesJson(JSON.stringify(data.rules, null, 2));
+      setEditableRules(
+        (data.rules || []).map((r: Record<string, unknown>) => ({
+          name: String(r.name ?? ''),
+          patterns: Array.isArray(r.patterns) ? r.patterns.join('\n') : '',
+          severity: String(r.severity ?? 'medium'),
+          description: String(r.description ?? ''),
+          enabled: r.enabled !== false,
+        }))
+      );
       setRulesMsg('Reset to defaults');
       setTimeout(() => setRulesMsg(null), 3000);
     } catch {
@@ -179,22 +194,40 @@ export const Splash = () => {
   }, []);
 
   const handleSaveRules = useCallback(async () => {
-    try {
-      const rules = JSON.parse(rulesJson);
-      if (!Array.isArray(rules)) throw new Error('Not an array');
-      const res = await fetch('/api/rules', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rules }),
-      });
-      if (res.ok) {
-        setRulesMsg(`Saved ${rules.length} rules`);
-        setTimeout(() => setRulesMsg(null), 3000);
-      }
-    } catch {
-      setRulesMsg('Invalid JSON');
+    const rules = editableRules.map((r) => ({
+      name: r.name,
+      patterns: r.patterns.split('\n').map((s) => s.trim()).filter(Boolean),
+      severity: r.severity,
+      description: r.description,
+      enabled: r.enabled,
+    }));
+    const res = await fetch('/api/rules', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rules }),
+    });
+    if (res.ok) {
+      setRulesMsg(`Saved ${rules.length} rules`);
+      setTimeout(() => setRulesMsg(null), 3000);
     }
-  }, [rulesJson]);
+  }, [editableRules]);
+
+  const addRule = () => {
+    setEditableRules((prev) => [
+      ...prev,
+      { name: '', patterns: '', severity: 'medium', description: '', enabled: true },
+    ]);
+  };
+
+  const updateRule = (i: number, field: string, value: string | boolean) => {
+    setEditableRules((prev) =>
+      prev.map((r, j) => (j === i ? { ...r, [field]: value } : r))
+    );
+  };
+
+  const deleteRule = (i: number) => {
+    setEditableRules((prev) => prev.filter((_, j) => j !== i));
+  };
 
   const OptionPicker = () => {
     if (!picker) return null;
@@ -274,19 +307,73 @@ export const Splash = () => {
 
       {/* Rules config panel */}
       {showRules && (
-        <div className="px-4 py-3 border-b border-gray-800 bg-gray-900/50 shrink-0">
+        <div className="px-4 py-3 border-b border-gray-800 bg-gray-900/50 shrink-0 max-h-96 overflow-y-auto">
           <div className="text-xs font-medium text-gray-300 mb-2">
-            Custom Rules (JSON)
+            Custom Rules
           </div>
-          <textarea
-            className="w-full h-32 p-2 rounded-lg bg-gray-800 border border-gray-700 text-xs text-gray-200 font-mono resize-none focus:outline-none focus:border-blue-500/50"
-            value={rulesJson}
-            onChange={(e) => setRulesJson(e.target.value)}
-            spellCheck={false}
-          />
+          {editableRules.map((rule, i) => (
+            <div
+              key={i}
+              className="mb-2 p-2 rounded-lg bg-gray-800/50 border border-gray-700/30"
+            >
+              <div className="flex items-center gap-1.5 mb-1">
+                <input
+                  className="flex-1 px-2 py-1 rounded bg-gray-800 border border-gray-700 text-[10px] text-gray-200 placeholder-gray-600 focus:outline-none focus:border-blue-500/50"
+                  placeholder="Rule name"
+                  value={rule.name}
+                  onChange={(e) => updateRule(i, 'name', e.target.value)}
+                />
+                <select
+                  className="px-1.5 py-1 rounded bg-gray-800 border border-gray-700 text-[10px] text-gray-300 cursor-pointer"
+                  value={rule.severity}
+                  onChange={(e) => updateRule(i, 'severity', e.target.value)}
+                >
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                  <option value="critical">Critical</option>
+                </select>
+                <label className="flex items-center gap-1 text-[10px] text-gray-500 cursor-pointer shrink-0">
+                  <input
+                    type="checkbox"
+                    checked={rule.enabled}
+                    onChange={(e) => updateRule(i, 'enabled', e.target.checked)}
+                    className="w-3 h-3"
+                  />
+                  On
+                </label>
+                <button
+                  onClick={() => deleteRule(i)}
+                  className="text-[10px] px-1 py-0.5 rounded text-red-500 hover:text-red-400 cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+              <textarea
+                className="w-full p-1.5 rounded bg-gray-800 border border-gray-700 text-[10px] text-gray-300 font-mono placeholder-gray-600 focus:outline-none focus:border-blue-500/50 resize-none"
+                placeholder="Patterns (one per line, supports regex)"
+                rows={2}
+                value={rule.patterns}
+                onChange={(e) => updateRule(i, 'patterns', e.target.value)}
+                spellCheck={false}
+              />
+              <input
+                className="w-full mt-1 px-2 py-1 rounded bg-gray-800 border border-gray-700 text-[10px] text-gray-300 placeholder-gray-600 focus:outline-none focus:border-blue-500/50"
+                placeholder="Description"
+                value={rule.description}
+                onChange={(e) => updateRule(i, 'description', e.target.value)}
+              />
+            </div>
+          ))}
+          <button
+            onClick={addRule}
+            className="w-full py-1.5 rounded-lg border border-dashed border-gray-600 text-[10px] text-gray-500 hover:text-gray-300 hover:border-gray-500 cursor-pointer transition-colors"
+          >
+            + Add Rule
+          </button>
           <div className="flex items-center justify-between mt-2">
             <span className="text-[10px] text-gray-600">
-              name, patterns, severity, description, enabled
+              {editableRules.length} rule(s)
             </span>
             <div className="flex gap-2">
               {rulesMsg && (
