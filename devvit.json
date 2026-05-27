@@ -40,6 +40,12 @@
     "dev": "vite build --watch",
     "build": "vite build"
   },
+  "permissions": {
+    "http": {
+      "enable": true,
+      "domains": ["api.deepseek.com"]
+    }
+  },
   "dev": {
     "subreddit": "modguard_ai_bot_dev"
   }

@@ -1,5 +1,6 @@
 import { redis } from '@devvit/web/server';
 import type { AIAnalysisOutput, LightAIOutput, ModerationSignals, RiskScore, ModPrecedent } from '../../shared/types';
+import { DEEPSEEK_API_KEY } from './api-key';
 
 // ═══════════════════════════════════════════════════════════════════════
 // Types
@@ -17,11 +18,18 @@ export interface AIAnalysisInput {
   precedents: ModPrecedent[];
 }
 
-interface AIConfig {
-  provider: 'anthropic' | 'openai' | 'custom';
-  apiKey: string;
-  model?: string;
-  endpoint?: string;
+// ═══════════════════════════════════════════════════════════════════════
+// DeepSeek API Config
+// ═══════════════════════════════════════════════════════════════════════
+
+const DEEPSEEK_ENDPOINT = 'https://api.deepseek.com/v1/chat/completions';
+const DEEPSEEK_MODEL = 'deepseek-chat';
+const AI_TIMEOUT_MS = 5000;
+
+function getAPIKey(): string | null {
+  return DEEPSEEK_API_KEY && DEEPSEEK_API_KEY !== 'sk-your-key-here'
+    ? DEEPSEEK_API_KEY
+    : null;
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -32,7 +40,6 @@ const CIRCUIT_BREAKER_KEY = 'mg:ai-circuit-breaker';
 const FAILURE_COUNT_KEY = 'mg:ai-failure-count';
 const CIRCUIT_BREAKER_TTL_SEC = 300;
 const FAILURE_THRESHOLD = 3;
-const AI_TIMEOUT_MS = 5000;
 
 async function isCircuitOpen(): Promise<boolean> {
   try {
@@ -56,7 +63,7 @@ async function recordAIFailure(): Promise<void> {
       await redis.expire(FAILURE_COUNT_KEY, 120);
     }
   } catch {
-    // silent — circuit breaker failure shouldn't block moderation
+    // silent
   }
 }
 
@@ -65,33 +72,6 @@ async function recordAISuccess(): Promise<void> {
     await redis.del(FAILURE_COUNT_KEY);
   } catch {
     // silent
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════════════
-// Config
-// ═══════════════════════════════════════════════════════════════════════
-
-const PROVIDER_DEFAULTS: Record<string, { model: string; endpoint: string }> = {
-  anthropic: {
-    model: 'claude-haiku-4-5-20251001',
-    endpoint: 'https://api.anthropic.com/v1/messages',
-  },
-  openai: {
-    model: 'gpt-4o-mini',
-    endpoint: 'https://api.openai.com/v1/chat/completions',
-  },
-};
-
-async function getAIConfig(): Promise<AIConfig | null> {
-  try {
-    const raw = await redis.get('mg:ai-config');
-    if (!raw) return null;
-    const config = JSON.parse(raw) as AIConfig;
-    if (!config.apiKey) return null;
-    return config;
-  } catch {
-    return null;
   }
 }
 
@@ -269,81 +249,70 @@ function validateAIOutput(parsed: unknown): AIAnalysisOutput | null {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// AI Call
+// DeepSeek API Call Helper
 // ═══════════════════════════════════════════════════════════════════════
 
-function buildRequestBody(config: AIConfig, prompt: string) {
-  const provider = config.provider || 'anthropic';
-  const key = provider in PROVIDER_DEFAULTS ? provider : 'anthropic';
-  const def = PROVIDER_DEFAULTS[key]!;
-  const model = config.model || def.model;
+async function callDeepSeek(
+  systemPrompt: string,
+  userPrompt: string,
+  maxTokens: number,
+  timeoutMs: number = AI_TIMEOUT_MS,
+): Promise<string | null> {
+  const apiKey = getAPIKey();
+  if (!apiKey) return null;
 
-  const systemWithExamples = SYSTEM_PROMPT + '\n\n' + FEW_SHOT_EXAMPLES;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
-  if (provider === 'anthropic') {
-    return {
-      model,
-      max_tokens: 400,
-      system: systemWithExamples,
-      messages: [{ role: 'user' as const, content: prompt }],
-    };
+  try {
+    const res = await fetch(DEEPSEEK_ENDPOINT, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: DEEPSEEK_MODEL,
+        max_tokens: maxTokens,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+      }),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeout);
+
+    if (!res.ok) {
+      console.error('DeepSeek API error:', res.status);
+      return null;
+    }
+
+    const data = (await res.json()) as { choices?: Array<{ message: { content: string } }> };
+    return data.choices?.[0]?.message?.content ?? null;
+  } catch (err) {
+    clearTimeout(timeout);
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      console.warn('DeepSeek call timed out after', timeoutMs, 'ms');
+    } else {
+      console.error('DeepSeek call failed:', err instanceof Error ? err.message : err);
+    }
+    return null;
   }
-
-  // OpenAI / custom
-  return {
-    model,
-    max_tokens: 400,
-    messages: [
-      { role: 'system' as const, content: systemWithExamples },
-      { role: 'user' as const, content: prompt },
-    ],
-  };
 }
-
-function buildRequestHeaders(config: AIConfig): Record<string, string> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (config.provider === 'anthropic') {
-    headers['x-api-key'] = config.apiKey;
-    headers['anthropic-version'] = '2023-06-01';
-  } else {
-    headers['Authorization'] = `Bearer ${config.apiKey}`;
-  }
-  return headers;
-}
-
-function extractTextFromResponse(data: unknown, provider: string): string {
-  const d = data as Record<string, unknown>;
-  if (provider === 'anthropic') {
-    const content = d.content as Array<{ text: string }> | undefined;
-    return content?.[0]?.text ?? '';
-  }
-  const choices = d.choices as Array<{ message: { content: string } }> | undefined;
-  return choices?.[0]?.message?.content ?? '';
-}
-
-// ═══════════════════════════════════════════════════════════════════════
-// AI Result Cache (trigger pre-computation → expand-time read)
-// ═══════════════════════════════════════════════════════════════════════
 
 // ═══════════════════════════════════════════════════════════════════════
 // Public API
 // ═══════════════════════════════════════════════════════════════════════
 
-/**
- * Check whether AI should be called for this content.
- * Returns false if: circuit breaker open, no config, or routing says skip.
- */
 export async function shouldCallAI(routing: RiskScore['routing']): Promise<boolean> {
   if (routing === 'no_ai') return false;
   if (await isCircuitOpen()) return false;
-  const config = await getAIConfig();
-  return config !== null;
+  return getAPIKey() !== null;
 }
 
-// ═══════════════════════════════════════════════════════════════════════
-// Light AI — fast, cheap, minimal. For low-mid ambiguity (score 16-35).
-// ~200 input tokens, ~100 output. Cost ~$0.0002/call on Haiku.
-// ═══════════════════════════════════════════════════════════════════════
+// ── Light AI ──
 
 export async function callLightAI(input: {
   title: string;
@@ -352,59 +321,25 @@ export async function callLightAI(input: {
   matchedRules: Array<{ name: string; severity: string }>;
   riskScore: number;
 }): Promise<LightAIOutput | null> {
-  const config = await getAIConfig();
-  if (!config) return null;
+  const apiKey = getAPIKey();
+  if (!apiKey) return null;
 
   const ruleNames = input.matchedRules.map((r) => `${r.name} (${r.severity})`).join(', ') || 'none';
 
-  const prompt = `Quick moderation scan:
-Content: "${input.title || '(comment)'} ${input.body.slice(0, 300)}"
-By: ${input.author}
-Rules matched: ${ruleNames}
-Risk score: ${input.riskScore}/100
+  const text = await callDeepSeek(
+    'Triage scanner. One sentence. JSON only. Use uncertainty language.',
+    `Quick moderation scan:\nContent: "${input.title || '(comment)'} ${input.body.slice(0, 300)}"\nBy: ${input.author}\nRules matched: ${ruleNames}\nRisk score: ${input.riskScore}/100\n\nRespond with ONLY this JSON (no other text):\n{"summary":"1-sentence neutral summary","needs_deep_review":true/false,"primary_concern":"<single phrase or null>","confidence":0.0-1.0}`,
+    100,
+    3000,
+  );
+  if (!text) return null;
 
-Respond with ONLY this JSON (no other text):
-{"summary":"1-sentence neutral summary","needs_deep_review":true/false,"primary_concern":"<single phrase or null>","confidence":0.0-1.0}
-
-Rules:
-- Use uncertainty language ("may", "possible", "signals suggest")
-- "needs_deep_review": true only if you see genuine ambiguity that needs deeper analysis
-- "primary_concern": the single biggest moderation concern, or null if none
-- Be brief. This is a triage scan.`;
-
-  const provider = config.provider || 'anthropic';
-  const key = provider in PROVIDER_DEFAULTS ? provider : 'anthropic';
-  const def = PROVIDER_DEFAULTS[key]!;
-  const model = config.model || def.model;
-  const endpoint = config.endpoint || def.endpoint;
-
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 3000);
+  const jsonMatch = text.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) return null;
 
   try {
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    let body: unknown;
-    if (provider === 'anthropic') {
-      headers['x-api-key'] = config.apiKey;
-      headers['anthropic-version'] = '2023-06-01';
-      body = { model, max_tokens: 100, system: 'Triage scanner. One sentence. JSON only.', messages: [{ role: 'user', content: prompt }] };
-    } else {
-      headers['Authorization'] = `Bearer ${config.apiKey}`;
-      body = { model, max_tokens: 100, messages: [{ role: 'system', content: 'Triage scanner. One sentence. JSON only.' }, { role: 'user', content: prompt }] };
-    }
-
-    const res = await fetch(endpoint, { method: 'POST', headers, body: JSON.stringify(body), signal: controller.signal });
-    clearTimeout(timeout);
-    if (!res.ok) return null;
-
-    const data = (await res.json()) as { content?: Array<{ text: string }>; choices?: Array<{ message: { content: string } }> };
-    const text = data.content?.[0]?.text ?? data.choices?.[0]?.message?.content ?? '';
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return null;
-
     const parsed = JSON.parse(jsonMatch[0]);
     if (!parsed.summary || typeof parsed.confidence !== 'number') return null;
-
     return {
       summary: parsed.summary.slice(0, 200),
       needs_deep_review: parsed.needs_deep_review === true,
@@ -412,85 +347,38 @@ Rules:
       confidence: Math.min(1, Math.max(0, parsed.confidence)),
     };
   } catch {
-    clearTimeout(timeout);
     return null;
   }
 }
 
-/**
- * Call AI for deep context analysis of grey-zone content.
- * Returns null on any failure — caller falls back to rule-based analysis.
- */
+// ── Deep AI ──
+
 export async function callAIForDeepAnalysis(input: AIAnalysisInput): Promise<AIAnalysisOutput | null> {
-  const config = await getAIConfig();
-  if (!config) return null;
+  const apiKey = getAPIKey();
+  if (!apiKey) return null;
 
+  const systemWithExamples = SYSTEM_PROMPT + '\n\n' + FEW_SHOT_EXAMPLES;
   const prompt = buildUserPrompt(input);
-  const body = buildRequestBody(config, prompt);
-  const headers = buildRequestHeaders(config);
-  const endpoint = config.endpoint || PROVIDER_DEFAULTS[config.provider]?.endpoint || PROVIDER_DEFAULTS.anthropic.endpoint;
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), AI_TIMEOUT_MS);
-
-  try {
-    const res = await fetch(endpoint, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeout);
-
-    if (!res.ok) {
-      console.error('AI API error:', res.status);
-      await recordAIFailure();
-      return null;
-    }
-
-    const data = await res.json();
-    const text = extractTextFromResponse(data, config.provider);
-
-    // Parse JSON from response (handle markdown code blocks)
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      console.error('AI response contained no JSON');
-      await recordAIFailure();
-      return null;
-    }
-
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(jsonMatch[0]);
-    } catch {
-      console.error('AI response JSON parse failed');
-      await recordAIFailure();
-      return null;
-    }
-
-    const validated = validateAIOutput(parsed);
-    if (!validated) {
-      console.error('AI response failed schema validation');
-      await recordAIFailure();
-      return null;
-    }
-
-    // Post-process: enforce uncertainty language
-    validated.summary = stripCertaintyLanguage(validated.summary);
-
-    await recordAISuccess();
-    return validated;
-  } catch (err) {
-    clearTimeout(timeout);
-    if (err instanceof DOMException && err.name === 'AbortError') {
-      console.warn('AI call timed out after', AI_TIMEOUT_MS, 'ms');
-    } else {
-      console.error('AI call failed:', err instanceof Error ? err.message : err);
-    }
+  const text = await callDeepSeek(systemWithExamples, prompt, 400, AI_TIMEOUT_MS);
+  if (!text) {
     await recordAIFailure();
     return null;
   }
+
+  const jsonMatch = text.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) { await recordAIFailure(); return null; }
+
+  let parsed: unknown;
+  try { parsed = JSON.parse(jsonMatch[0]); }
+  catch { await recordAIFailure(); return null; }
+
+  const validated = validateAIOutput(parsed);
+  if (!validated) { await recordAIFailure(); return null; }
+
+  validated.summary = stripCertaintyLanguage(validated.summary);
+  await recordAISuccess();
+  return validated;
 }
 
 // ── Post-processing: strip certainty language ──
@@ -517,79 +405,3 @@ function stripCertaintyLanguage(text: string): string {
   return result;
 }
 
-// ── Legacy API for backward compat ──
-
-export async function enhanceWithAI(input: {
-  title: string;
-  body: string;
-  author: string;
-  matchedRules: Array<{ name: string; severity: string }>;
-}): Promise<{ summary: string; confidence: number } | null> {
-  const config = await getAIConfig();
-  if (!config) return null;
-
-  const ruleNames = input.matchedRules.map((r) => `${r.name} (${r.severity})`).join(', ');
-  const prompt = `Content: "${input.title || '(comment)'} ${input.body.slice(0, 500)}"\nMatched rules: ${ruleNames || 'None'}\n\nProvide a 2-3 sentence moderation context analysis. Do NOT state whether content IS a violation — use uncertainty language ("may indicate", "possible", "signals suggest"). Respond with JSON: {"summary": "...", "confidence": 0-100}`;
-
-  const provider = config.provider || 'anthropic';
-  const key = provider in PROVIDER_DEFAULTS ? provider : 'anthropic';
-  const def = PROVIDER_DEFAULTS[key]!;
-  const model = config.model || def.model;
-  const endpoint = config.endpoint || def.endpoint;
-
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
-
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    let body: unknown;
-    if (provider === 'anthropic') {
-      headers['x-api-key'] = config.apiKey;
-      headers['anthropic-version'] = '2023-06-01';
-      body = {
-        model,
-        max_tokens: 256,
-        system: 'You are a moderation context analyst. Use uncertainty language. Do not state content IS a violation.',
-        messages: [{ role: 'user', content: prompt }],
-      };
-    } else {
-      headers['Authorization'] = `Bearer ${config.apiKey}`;
-      body = {
-        model,
-        max_tokens: 256,
-        messages: [
-          { role: 'system', content: 'You are a moderation context analyst. Use uncertainty language. Do not state content IS a violation.' },
-          { role: 'user', content: prompt },
-        ],
-      };
-    }
-
-    const res = await fetch(endpoint, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-    clearTimeout(timeout);
-
-    if (!res.ok) return null;
-
-    const data = (await res.json()) as {
-      content?: Array<{ text: string }>;
-      choices?: Array<{ message: { content: string } }>;
-    };
-    const text = data.content?.[0]?.text ?? data.choices?.[0]?.message?.content ?? '';
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return null;
-
-    const result = JSON.parse(jsonMatch[0]) as { summary: string; confidence: number };
-    if (!result.summary || typeof result.confidence !== 'number') return null;
-
-    return {
-      summary: result.summary.slice(0, 300),
-      confidence: Math.min(100, Math.max(0, Math.round(result.confidence))),
-    };
-  } catch {
-    return null;
-  }
-}
