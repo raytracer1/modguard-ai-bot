@@ -28,29 +28,34 @@ export const ContextPanel: React.FC<ContextPanelProps> = ({
       {/* Collaboration status */}
       <CollaborationBadge status={collaboration} />
 
-      {/* User info */}
-      <UserInfoCard profile={userProfile} />
+      {/* Responsive grid: single column on mobile, 3 columns on desktop */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+        {/* Left column: user + content */}
+        <div className="space-y-3">
+          <UserInfoCard profile={userProfile} />
+          <ContentSummaryCard
+            summary={contentSummary}
+            title={queueItem.title}
+            body={queueItem.body}
+          />
+        </div>
 
-      {/* Content summary */}
-      <ContentSummaryCard
-        summary={contentSummary}
-        title={queueItem.title}
-        body={queueItem.body}
-      />
+        {/* Middle column: rules + similar cases */}
+        <div className="space-y-3">
+          <RuleMatchCard matches={ruleMatches} />
+          <SimilarCasesPanel cases={similarCases} />
+        </div>
 
-      {/* Rule matches */}
-      <RuleMatchCard matches={ruleMatches} />
-
-      {/* Similar cases */}
-      <SimilarCasesPanel cases={similarCases} />
-
-      {/* Recommendation + actions */}
-      <RecommendationPanel
-        recommendation={recommendation}
-        queueItemId={queueItem.id}
-        onDecision={onDecision}
-        disabled={disabled}
-      />
+        {/* Right column: recommendation + actions */}
+        <div className="space-y-3">
+          <RecommendationPanel
+            recommendation={recommendation}
+            queueItemId={queueItem.id}
+            onDecision={onDecision}
+            disabled={disabled}
+          />
+        </div>
+      </div>
 
       {/* Meta footer */}
       <div className="flex items-center justify-between text-[10px] text-gray-600 px-1">
