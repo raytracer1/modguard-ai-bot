@@ -13,7 +13,7 @@ const PATTERN_RULES: PatternRule[] = [
   {
     ruleId: 'rule-1',
     patterns: [
-      /\b(idiot|stupid|dumb|moron|brainless|imbecile)\b/gi,
+      /\b(idiots?|stupid|dumb|morons?|brainless|imbeciles?)\b/gi,
       /\b(kill yourself|kys|die in a fire)\b/gi,
       /\b(i hate (you|all|everyone|this)|you people are)\b/gi,
       /\b(garbage human|worthless|pathetic)\b/gi,
