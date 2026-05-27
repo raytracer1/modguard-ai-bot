@@ -7,6 +7,9 @@ import type {
   QueueResponse,
   ContextResponse,
   ModContext,
+  RiskFactor,
+  PossibleRuleMatch,
+  ToneAnalysis,
 } from '../shared/api';
 
 const severityColors: Record<string, string> = {
@@ -17,9 +20,10 @@ const severityColors: Record<string, string> = {
 };
 
 const actionStyles: Record<string, string> = {
+  approve: 'bg-emerald-600 hover:bg-emerald-500 text-white',
+  approve_with_flair: 'bg-blue-600 hover:bg-blue-500 text-white',
   remove: 'bg-red-600 hover:bg-red-500 text-white',
   spam: 'bg-pink-600 hover:bg-pink-500 text-white',
-  approve: 'bg-emerald-600 hover:bg-emerald-500 text-white',
   ban: 'bg-red-800 hover:bg-red-700 text-white',
 };
 
@@ -117,7 +121,7 @@ export const Splash = () => {
   const handleDecision = useCallback(
     async (
       itemId: string,
-      action: 'approve' | 'remove' | 'spam' | 'approve_with_flair' | 'ban',
+      action: 'approve' | 'approve_with_flair' | 'remove' | 'spam' | 'ban',
       reason?: string
     ) => {
       try {
@@ -513,9 +517,22 @@ export const Splash = () => {
                       </div>
                       <div className="text-[11px] text-gray-500 mt-0.5">
                         u/{item.author} · {item.score} pts
-                        {item.priority != null && (
+                        {item.riskScore != null && (
                           <span
                             className={`ml-2 text-[10px] font-mono ${
+                              item.riskScore >= 15
+                                ? 'text-red-400'
+                                : item.riskScore >= 5
+                                  ? 'text-amber-400'
+                                  : 'text-emerald-400'
+                            }`}
+                          >
+                            R{item.riskScore}
+                          </span>
+                        )}
+                        {item.priority != null && (
+                          <span
+                            className={`ml-1 text-[10px] font-mono ${
                               item.priority >= 80
                                 ? 'text-red-400'
                                 : item.priority >= 50
@@ -524,6 +541,18 @@ export const Splash = () => {
                             }`}
                           >
                             P{item.priority.toFixed(0)}
+                          </span>
+                        )}
+                        {item.riskRouting && (
+                          <span className={`ml-2 text-[9px] px-1 py-0.5 rounded ${
+                            item.riskRouting === 'deep_ai'
+                              ? 'bg-purple-500/15 text-purple-400'
+                              : item.riskRouting === 'light_ai'
+                                ? 'bg-blue-500/15 text-blue-400'
+                                : 'bg-emerald-500/15 text-emerald-400'
+                          }`}>
+                            {item.riskRouting === 'deep_ai' ? 'high' :
+                             item.riskRouting === 'light_ai' ? 'std' : 'low'}
                           </span>
                         )}
                         {item.reviewing && expandedId !== item.id && (
@@ -541,7 +570,7 @@ export const Splash = () => {
                             : 'bg-emerald-500/10 text-emerald-400'
                         }`}
                       >
-                        {item.recAction.replace('_', ' + ')}
+                        {item.recAction}
                       </span>
                       <div className="text-[10px] font-mono text-gray-600 mt-0.5">
                         {item.recConfidence}%
@@ -570,6 +599,171 @@ export const Splash = () => {
                             {item.body}
                           </div>
                         </div>
+
+                        {/* Risk Score Bar */}
+                        <div className="p-3 rounded-lg bg-gray-800/50 border border-gray-700/30">
+                          <div className="flex items-center justify-between mb-1.5">
+                            <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-600">
+                              Risk Assessment
+                            </div>
+                            <div className={`text-[11px] font-mono font-bold ${
+                              modContext.riskScore.total >= 15 ? 'text-red-400' :
+                              modContext.riskScore.total >= 5 ? 'text-amber-400' :
+                              'text-emerald-400'
+                            }`}>
+                              {modContext.riskScore.total}/100
+                              <span className="text-[9px] ml-1 font-normal text-gray-500">
+                                {modContext.riskScore.routing === 'deep_ai' ? 'HIGH PRIORITY' :
+                                 modContext.riskScore.routing === 'light_ai' ? 'STANDARD' : 'LOW'}
+                              </span>
+                            </div>
+                          </div>
+                          {/* Progress bar */}
+                          <div className="w-full h-1.5 bg-gray-700 rounded-full overflow-hidden mb-2">
+                            <div
+                              className={`h-full rounded-full transition-all ${
+                                modContext.riskScore.total >= 15 ? 'bg-red-500' :
+                                modContext.riskScore.total >= 5 ? 'bg-amber-500' :
+                                'bg-emerald-500'
+                              }`}
+                              style={{ width: `${modContext.riskScore.total}%` }}
+                            />
+                          </div>
+                          {/* Breakdown */}
+                          <div className="grid grid-cols-5 gap-1 text-center">
+                            {([
+                              ['User', modContext.riskScore.breakdown.user, 25],
+                              ['Content', modContext.riskScore.breakdown.content, 30],
+                              ['Rules', modContext.riskScore.breakdown.rule, 25],
+                              ['Behavior', modContext.riskScore.breakdown.behavior, 15],
+                              ['Queue', modContext.riskScore.breakdown.queue, 5],
+                            ] as [string, number, number][]).map(([label, score, max]) => (
+                              <div key={label} className="space-y-0.5">
+                                <div className="text-[9px] text-gray-500">{label}</div>
+                                <div className={`text-[10px] font-mono ${
+                                  score / max > 0.6 ? 'text-red-400' :
+                                  score / max > 0.3 ? 'text-amber-400' :
+                                  'text-emerald-400'
+                                }`}>
+                                  {score}/{max}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                          {/* Routing reason */}
+                          <div className="mt-2 text-[9px] text-gray-600 italic">
+                            {modContext.meta.aiRoutingReason}
+                          </div>
+                        </div>
+
+                        {/* AI Analysis Panel */}
+                        {modContext.aiAnalysis && (
+                          <div className="p-3 rounded-lg bg-purple-500/5 border border-purple-500/20">
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="text-[10px] font-semibold uppercase tracking-wider text-purple-400">
+                                🤖 AI Context Analysis
+                              </div>
+                              <div className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
+                                modContext.aiAnalysis.confidence >= 0.7
+                                  ? 'bg-purple-500/20 text-purple-300'
+                                  : 'bg-amber-500/15 text-amber-400'
+                              }`}>
+                                confidence: {Math.round(modContext.aiAnalysis.confidence * 100)}%
+                              </div>
+                            </div>
+
+                            {/* Risk factors */}
+                            {modContext.aiAnalysis.risk_factors.length > 0 && (
+                              <div className="mb-2">
+                                <div className="text-[10px] font-medium text-purple-300 mb-1">
+                                  Risk Factors
+                                </div>
+                                {modContext.aiAnalysis.risk_factors.map((rf: RiskFactor, i: number) => (
+                                  <div key={i} className="flex items-start gap-1.5 mb-1 text-[10px]">
+                                    <span className={`shrink-0 mt-0.5 ${
+                                      rf.strength === 'high' ? 'text-red-400' :
+                                      rf.strength === 'moderate' ? 'text-amber-400' : 'text-blue-400'
+                                    }`}>
+                                      {rf.strength === 'high' ? '⬤' : rf.strength === 'moderate' ? '◐' : '◌'}
+                                    </span>
+                                    <div>
+                                      <span className="text-gray-300">{rf.signal}</span>
+                                      <span className="text-gray-500"> — {rf.explanation}</span>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+
+                            {/* Rule assessment by AI */}
+                            {modContext.aiAnalysis.possible_rule_matches.length > 0 && (
+                              <div className="mb-2">
+                                <div className="text-[10px] font-medium text-purple-300 mb-1">
+                                  Rule Assessment
+                                </div>
+                                {modContext.aiAnalysis.possible_rule_matches.map((prm: PossibleRuleMatch, i: number) => (
+                                  <div key={i} className="flex items-start gap-1.5 mb-1 text-[10px]">
+                                    <span className={`shrink-0 px-1 py-0.5 rounded text-[9px] ${
+                                      prm.relevance === 'definite' || prm.relevance === 'likely'
+                                        ? 'bg-red-500/15 text-red-400'
+                                        : prm.relevance === 'partial'
+                                          ? 'bg-amber-500/15 text-amber-400'
+                                          : 'bg-gray-500/15 text-gray-400'
+                                    }`}>
+                                      {prm.relevance}
+                                    </span>
+                                    <div>
+                                      <span className="text-gray-300">{prm.rule}</span>
+                                      <span className="text-gray-500"> — {prm.explanation}</span>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+
+                            {/* Tone */}
+                            <div className="mb-2">
+                              <div className="text-[10px] font-medium text-purple-300 mb-1">
+                                Tone: <span className="text-gray-300">{modContext.aiAnalysis.tone_analysis.primary_tone}</span>
+                                {modContext.aiAnalysis.tone_analysis.secondary_tones.length > 0 && (
+                                  <span className="text-gray-500">
+                                    {' '}+ {modContext.aiAnalysis.tone_analysis.secondary_tones.join(', ')}
+                                  </span>
+                                )}
+                                <span className="text-gray-600 ml-1">
+                                  ({modContext.aiAnalysis.tone_analysis.certainty} certainty)
+                                </span>
+                              </div>
+                              <div className="text-[10px] text-gray-500">
+                                {modContext.aiAnalysis.tone_analysis.notes}
+                              </div>
+                            </div>
+
+                            {/* Precedent */}
+                            {modContext.aiAnalysis.precedent_summary && (
+                              <div className="mb-2">
+                                <div className="text-[10px] font-medium text-purple-300 mb-0.5">
+                                  Similar Precedents
+                                </div>
+                                <div className="text-[10px] text-gray-500">
+                                  {modContext.aiAnalysis.precedent_summary}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Review action hint */}
+                            <div className={`text-[10px] px-2 py-1 rounded ${
+                              modContext.aiAnalysis.recommended_review_action === 'approve_likely_safe'
+                                ? 'bg-emerald-500/10 text-emerald-400'
+                                : modContext.aiAnalysis.recommended_review_action === 'escalate_for_review'
+                                  ? 'bg-red-500/10 text-red-400'
+                                  : 'bg-amber-500/10 text-amber-400'
+                            }`}>
+                              AI suggests: {modContext.aiAnalysis.recommended_review_action.replace(/_/g, ' ')}
+                              {' — '}advisory only, you decide
+                            </div>
+                          </div>
+                        )}
 
                         {/* Summary */}
                         <div className={`p-3 rounded-lg border ${modContext.meta.aiAssisted ? 'bg-purple-500/5 border-purple-500/20' : 'bg-blue-500/5 border-blue-500/20'}`}>
@@ -641,7 +835,7 @@ export const Splash = () => {
                                     variant: 'info',
                                   })
                                 }
-                                className="flex-1 py-2 rounded-lg text-xs font-medium cursor-pointer transition-colors bg-blue-600 hover:bg-blue-500 text-white"
+                                className={`flex-1 py-2 rounded-lg text-xs font-medium cursor-pointer transition-colors ${actionStyles.approve_with_flair}`}
                               >
                                 Approve + Flair
                               </button>

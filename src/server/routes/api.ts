@@ -10,8 +10,10 @@ import type {
   StatsResponse,
   ErrorResponse,
 } from '../../shared/api';
-import { generateModContext } from '../core/context-engine';
+import { generateModContext, recordPrecedent } from '../core/context-engine';
 import type { QueueItemInput } from '../core/context-engine';
+import type { ModPrecedent } from '../../shared/types';
+import { recordUserRemoval, recordUserBan } from '../core/scoring-engine';
 
 export const api = new Hono();
 
@@ -171,6 +173,12 @@ api.post('/decision', async (c) => {
     // Update decision counter
     await redis.incrBy(`modguard:decisions:${body.action}`, 1);
 
+    // Load queue item to get author for Reddit action + user tracking
+    const raw = await redis.get('mg:queue');
+    const queue: Array<{ id: string; author: string }> = raw ? JSON.parse(raw) : [];
+    const queueItem = queue.find((q) => q.id === body.queueItemId);
+    const itemAuthor = queueItem?.author;
+
     // Execute the Reddit action
     try {
       const id = body.queueItemId as any; // eslint-disable-line
@@ -189,12 +197,9 @@ api.post('/decision', async (c) => {
           });
         }
       } else if (body.action === 'ban') {
-        const raw = await redis.get('mg:queue');
-        const queue = raw ? JSON.parse(raw) : [];
-        const item = queue.find((q: { id: string }) => q.id === body.queueItemId);
-        if (item) {
+        if (itemAuthor) {
           await reddit.banUser({
-            username: item.author,
+            username: itemAuthor,
             subredditName: context.subredditName ?? '',
             reason: body.reason ?? 'Rule violation',
             context: body.queueItemId,
@@ -205,14 +210,57 @@ api.post('/decision', async (c) => {
       console.error('Failed to execute Reddit action:', actionError);
     }
 
-    // Remove item from queue
-    const raw = await redis.get('mg:queue');
-    if (raw) {
-      const queue = JSON.parse(raw);
+    // Update user history for time-decayed scoring
+    if (itemAuthor) {
+      try {
+        if (body.action === 'remove' || body.action === 'spam') {
+          await recordUserRemoval(itemAuthor);
+        } else if (body.action === 'ban') {
+          await recordUserBan(itemAuthor);
+        }
+      } catch {
+        // non-critical
+      }
+    }
+
+    // Remove item from queue (reuse already-loaded queue from above)
+    if (queueItem) {
+      const queueItemForPrecedent = {
+        title: (queueItem as Record<string, unknown>).title as string ?? '',
+        body: (queueItem as Record<string, unknown>).body as string ?? '',
+        priority: (queueItem as Record<string, unknown>).priority as number | undefined,
+      };
       const filtered = queue.filter(
-        (q: { id: string }) => q.id !== body.queueItemId
+        (q) => q.id !== body.queueItemId,
       );
       await redis.set('mg:queue', JSON.stringify(filtered));
+
+      // Record as precedent for future AI analysis
+      try {
+        const contentExcerpt = (queueItemForPrecedent.title || queueItemForPrecedent.body).slice(0, 300);
+        const precedent: ModPrecedent = {
+          id: body.queueItemId,
+          contentExcerpt,
+          riskScore: queueItemForPrecedent.priority ?? 0,
+          ruleMatches: [],
+          aiSummary: '',
+          outcome:
+            body.action === 'remove' || body.action === 'spam'
+              ? 'removed'
+              : body.action === 'ban'
+                ? 'banned'
+                : body.action === 'approve' || body.action === 'approve_with_flair'
+                  ? 'approved'
+                  : 'locked',
+          moderator: username ?? 'unknown',
+          reason: body.reason ?? '',
+          timestamp: new Date().toISOString(),
+          subreddit: context.subredditName ?? 'unknown',
+        };
+        await recordPrecedent(precedent);
+      } catch {
+        // non-critical
+      }
     }
 
     return c.json<DecisionResponse>({
@@ -323,6 +371,8 @@ api.get('/queue', async (c) => {
       recConfidence: number;
       reviewing?: { username: string; since: number };
       priority?: number;
+      riskScore?: number;
+      riskRouting?: string;
     }> = raw ? JSON.parse(raw) : [];
 
     // Attach reviewing status and sort by priority
@@ -343,6 +393,18 @@ api.get('/queue', async (c) => {
   } catch (error) {
     console.error('Queue fetch error:', error);
     return c.json({ type: 'queue', items: [] }, 200);
+  }
+});
+
+// ── Precedents ──
+
+api.get('/precedents', async (c) => {
+  try {
+    const raw = await redis.get('mg:precedents');
+    const precedents: ModPrecedent[] = raw ? JSON.parse(raw) : [];
+    return c.json({ precedents: precedents.slice(0, 20) }, 200);
+  } catch {
+    return c.json({ precedents: [] }, 200);
   }
 });
 
