@@ -35,10 +35,15 @@ export const Splash = () => {
   const [ctxLoading, setCtxLoading] = useState(false);
   const [decisionMsg, setDecisionMsg] = useState<string | null>(null);
   const [showRules, setShowRules] = useState(false);
+  const [showFrequency, setShowFrequency] = useState(false);
   const [editableRules, setEditableRules] = useState<Array<{
     name: string; patterns: string; severity: string; description: string; enabled: boolean;
   }>>([]);
   const [rulesMsg, setRulesMsg] = useState<string | null>(null);
+  const [windowMinutes, setWindowMinutes] = useState(5);
+  const [floodThreshold, setFloodThreshold] = useState(6);
+  const [highRateThreshold, setHighRateThreshold] = useState(3);
+  const [settingsMsg, setSettingsMsg] = useState<string | null>(null);
   const [picker, setPicker] = useState<{
     itemId: string;
     options: string[];
@@ -117,34 +122,29 @@ export const Splash = () => {
   );
 
   const handleDecision = useCallback(
-    async (
+    (
       itemId: string,
       action: 'approve' | 'approve_with_flair' | 'remove' | 'spam' | 'ban',
       reason?: string
     ) => {
-      try {
-        const res = await fetch('/api/decision', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ queueItemId: itemId, action, reason }),
-        });
-        if (res.ok) {
-          setItems((prev) => prev.filter((i) => i.id !== itemId));
-          setExpandedId(null);
-          setModContext(null);
-          setPicker(null);
-          setDecisionMsg(reason ? `${action} — ${reason}` : `${action} — done`);
-          // Clear reviewing
-          fetch('/api/reviewing/stop', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ itemId }),
-          }).catch(() => {});
-          setTimeout(() => setDecisionMsg(null), 3000);
-        }
-      } catch (err) {
-        console.error('Decision error:', err);
-      }
+      // Optimistic: remove from UI immediately, fire API fire-and-forget
+      setItems((prev) => prev.filter((i) => i.id !== itemId));
+      setExpandedId(null);
+      setModContext(null);
+      setPicker(null);
+      setDecisionMsg(reason ? `${action} — ${reason}` : `${action} — done`);
+      fetch('/api/reviewing/stop', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ itemId }),
+      }).catch(() => {});
+      setTimeout(() => setDecisionMsg(null), 3000);
+
+      fetch('/api/decision', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ queueItemId: itemId, action, reason }),
+      }).catch((err) => console.error('Decision error:', err));
     },
     []
   );
@@ -165,6 +165,7 @@ export const Splash = () => {
         );
         setRulesMsg(null);
       } catch { /* ignore */ }
+      setShowFrequency(false);
     }
     setShowRules(!showRules);
   }, [showRules]);
@@ -212,6 +213,41 @@ export const Splash = () => {
       setTimeout(() => setRulesMsg(null), 3000);
     }
   }, [editableRules]);
+
+  const handleToggleFrequency = useCallback(async () => {
+    if (!showFrequency) {
+      try {
+        const res = await fetch('/api/settings');
+        const settings = await res.json();
+        if (settings.frequency) {
+          setWindowMinutes(settings.frequency.windowMinutes ?? 5);
+          setFloodThreshold(settings.frequency.floodingThreshold ?? 6);
+          setHighRateThreshold(settings.frequency.highRateThreshold ?? 3);
+        }
+        setSettingsMsg(null);
+      } catch { /* ignore */ }
+      setShowRules(false);
+    }
+    setShowFrequency(!showFrequency);
+  }, [showFrequency]);
+
+  const handleSaveSettings = useCallback(async () => {
+    const res = await fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        frequency: {
+          windowMinutes: windowMinutes,
+          floodingThreshold: floodThreshold,
+          highRateThreshold: highRateThreshold,
+        },
+      }),
+    });
+    if (res.ok) {
+      setSettingsMsg('Frequency settings saved');
+      setTimeout(() => setSettingsMsg(null), 3000);
+    }
+  }, [windowMinutes, floodThreshold, highRateThreshold]);
 
   const addRule = () => {
     setEditableRules((prev) => [
@@ -280,6 +316,16 @@ export const Splash = () => {
               {decisionMsg}
             </span>
           )}
+          <button
+            onClick={handleToggleFrequency}
+            className={`text-xs px-2 py-1 rounded cursor-pointer transition-colors ${
+              showFrequency
+                ? 'bg-amber-500/20 text-amber-400'
+                : 'text-gray-600 hover:text-gray-400'
+            }`}
+          >
+            Frequency
+          </button>
           <button
             onClick={handleToggleRules}
             className={`text-xs px-2 py-1 rounded cursor-pointer transition-colors ${
@@ -355,7 +401,7 @@ export const Splash = () => {
           ))}
           <button
             onClick={addRule}
-            className="w-full py-1.5 rounded-lg border border-dashed border-gray-600 text-[10px] text-gray-500 hover:text-gray-300 hover:border-gray-500 cursor-pointer transition-colors"
+            className="w-full mt-3 py-1.5 rounded-lg border border-dashed border-gray-600 text-[10px] text-gray-500 hover:text-gray-300 hover:border-gray-500 cursor-pointer transition-colors"
           >
             + Add Rule
           </button>
@@ -388,6 +434,70 @@ export const Splash = () => {
                 Save
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Frequency Limits panel */}
+      {showFrequency && (
+        <div className="px-4 py-3 border-b border-gray-800 bg-gray-900/50 shrink-0">
+          <div className="text-xs font-medium text-gray-300 mb-2">
+            Frequency Limits
+          </div>
+          <div className="flex gap-2 mb-2">
+            <div className="flex-1">
+              <label className="text-[10px] text-gray-500 block mb-0.5">
+                Window (minutes)
+              </label>
+              <input
+                type="number"
+                min={1}
+                max={60}
+                value={windowMinutes}
+                onChange={(e) => setWindowMinutes(parseInt(e.target.value) || 1)}
+                className="w-full px-2 py-1 rounded bg-gray-800 border border-gray-700 text-[10px] text-gray-200 focus:outline-none focus:border-blue-500/50"
+              />
+            </div>
+            <div className="flex-1">
+              <label className="text-[10px] text-gray-500 block mb-0.5">
+                Flooding ≥ N
+              </label>
+              <input
+                type="number"
+                min={1}
+                max={20}
+                value={floodThreshold}
+                onChange={(e) => setFloodThreshold(parseInt(e.target.value) || 1)}
+                className="w-full px-2 py-1 rounded bg-gray-800 border border-gray-700 text-[10px] text-gray-200 focus:outline-none focus:border-blue-500/50"
+              />
+            </div>
+            <div className="flex-1">
+              <label className="text-[10px] text-gray-500 block mb-0.5">
+                High rate ≥ N
+              </label>
+              <input
+                type="number"
+                min={1}
+                max={20}
+                value={highRateThreshold}
+                onChange={(e) => setHighRateThreshold(parseInt(e.target.value) || 1)}
+                className="w-full px-2 py-1 rounded bg-gray-800 border border-gray-700 text-[10px] text-gray-200 focus:outline-none focus:border-blue-500/50"
+              />
+            </div>
+          </div>
+          <div className="text-[9px] text-gray-600 mb-2">
+            ≥ N posts within the window triggers the signal
+          </div>
+          <div className="flex items-center justify-between">
+            {settingsMsg && (
+              <span className="text-[10px] text-emerald-400">{settingsMsg}</span>
+            )}
+            <button
+              onClick={handleSaveSettings}
+              className="ml-auto text-[10px] px-3 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white cursor-pointer font-medium"
+            >
+              Save
+            </button>
           </div>
         </div>
       )}

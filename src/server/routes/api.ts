@@ -13,7 +13,7 @@ import type {
 import { generateModContext, recordPrecedent } from '../core/context-engine';
 import type { QueueItemInput } from '../core/context-engine';
 import type { ModPrecedent } from '../../shared/types';
-import { recordUserRemoval, recordUserBan } from '../core/scoring-engine';
+import { recordUserRemoval, recordUserBan, getSettings, saveSettings } from '../core/scoring-engine';
 
 export const api = new Hono();
 
@@ -300,6 +300,27 @@ api.post('/rules', async (c) => {
   try {
     const { rules } = await c.req.json<{ rules: unknown }>();
     await redis.set('mg:rules', JSON.stringify(rules));
+    return c.json({ status: 'ok' }, 200);
+  } catch {
+    return c.json({ status: 'error' }, 500);
+  }
+});
+
+// ── App settings (frequency thresholds etc.) ──
+
+api.get('/settings', async (c) => {
+  try {
+    const settings = await getSettings();
+    return c.json(settings, 200);
+  } catch {
+    return c.json({ status: 'error' }, 500);
+  }
+});
+
+api.post('/settings', async (c) => {
+  try {
+    const settings = await c.req.json();
+    await saveSettings(settings);
     return c.json({ status: 'ok' }, 200);
   } catch {
     return c.json({ status: 'error' }, 500);

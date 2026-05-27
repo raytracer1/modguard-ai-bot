@@ -3,7 +3,7 @@ import type { TriggerRequest, TriggerResponse } from '@devvit/web/shared';
 import { context, redis } from '@devvit/web/server';
 import type { CachedModContext } from '../../shared/types';
 import { analyzeContent, generateContentSummary, loadCustomRules } from '../core/rule-engine';
-import { computeFullScore, extractSignals, generateRecommendation } from '../core/scoring-engine';
+import { computeFullScore, extractSignals, generateRecommendation, getSettings } from '../core/scoring-engine';
 import { shouldCallAI, callLightAI, callAIForDeepAnalysis } from '../core/ai-enhance';
 import { createPost } from '../core/post';
 import type { ModPrecedent } from '../../shared/types';
@@ -21,13 +21,16 @@ async function loadPrecedents(): Promise<ModPrecedent[]> {
 async function trackUserActivity(author: string): Promise<void> {
   try {
     const now = Date.now();
+    const settings = await getSettings();
+    const windowMs = settings.frequency.windowMinutes * 60_000;
+
     const lastPostKey = `mg:user:${author}:last_post_ts`;
-    const countKey = `mg:user:${author}:post_count_1h`;
+    const countKey = `mg:user:${author}:post_count`;
 
     const lastRaw = await redis.get(lastPostKey);
     if (lastRaw) {
       const lastTs = parseInt(lastRaw, 10);
-      if (now - lastTs < 3_600_000) {
+      if (now - lastTs < windowMs) {
         await redis.incrBy(countKey, 1);
       } else {
         await redis.set(countKey, '1');
@@ -36,7 +39,7 @@ async function trackUserActivity(author: string): Promise<void> {
       await redis.set(countKey, '1');
     }
     await redis.set(lastPostKey, String(now));
-    await redis.expire(countKey, 3600);
+    await redis.expire(countKey, Math.ceil(windowMs / 1000));
   } catch {
     // non-critical
   }

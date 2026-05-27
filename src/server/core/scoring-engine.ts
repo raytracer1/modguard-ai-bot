@@ -2,6 +2,41 @@ import type { AIAnalysisOutput, AIAugmentation, LightAIOutput, ModRecommendation
 import { redis } from '@devvit/web/server';
 
 // ═══════════════════════════════════════════════════════════════════════
+// Settings
+// ═══════════════════════════════════════════════════════════════════════
+
+const DEFAULT_SETTINGS = {
+  frequency: {
+    windowMinutes: 5,        // tracking window in minutes
+    floodingThreshold: 6,    // >= N posts in window → flooding
+    highRateThreshold: 3,    // >= N posts in window → high rate
+  },
+};
+
+export type AppSettings = typeof DEFAULT_SETTINGS;
+
+export async function getSettings(): Promise<AppSettings> {
+  try {
+    const raw = await redis.get('mg:settings');
+    if (raw) {
+      const stored = JSON.parse(raw);
+      return {
+        frequency: {
+          windowMinutes: stored.frequency?.windowMinutes ?? DEFAULT_SETTINGS.frequency.windowMinutes,
+          floodingThreshold: stored.frequency?.floodingThreshold ?? DEFAULT_SETTINGS.frequency.floodingThreshold,
+          highRateThreshold: stored.frequency?.highRateThreshold ?? DEFAULT_SETTINGS.frequency.highRateThreshold,
+        },
+      };
+    }
+  } catch { /* use defaults */ }
+  return DEFAULT_SETTINGS;
+}
+
+export async function saveSettings(settings: AppSettings): Promise<void> {
+  await redis.set('mg:settings', JSON.stringify(settings));
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // Risk Bucket Architecture
 //
 // Five independent buckets, each with a cap. No signal crosses buckets.
@@ -469,11 +504,14 @@ async function extractUserSignals(author: string) {
     }
   }
 
+  const settings = await getSettings();
+  const windowMs = settings.frequency.windowMinutes * 60_000;
+
   let postsInLastHour = 0;
   if (lastPostRaw) {
     const lastTs = parseInt(lastPostRaw, 10);
-    if (Date.now() - lastTs < 3_600_000) {
-      const countRaw = await redis.get(`mg:user:${author}:post_count_1h`);
+    if (Date.now() - lastTs < windowMs) {
+      const countRaw = await redis.get(`mg:user:${author}:post_count`);
       postsInLastHour = countRaw ? parseInt(countRaw, 10) : 1;
     }
   }
@@ -541,6 +579,7 @@ function computeBucketScores(
   timeInQueueMs: number,
   relatedItemInQueue: boolean,
   fullText: string,
+  settings?: AppSettings,
 ): ScoringResult {
   const signals: SignalBreakdown[] = [];
 
@@ -671,11 +710,12 @@ function computeBucketScores(
     });
   }
 
-  // Posting burst
-  if (user.posts_in_last_hour > 5) {
+  // Posting burst (configurable thresholds)
+  const freq = settings?.frequency ?? DEFAULT_SETTINGS.frequency;
+  if (user.posts_in_last_hour >= freq.floodingThreshold) {
     accountRiskRaw += 8;
     signals.push({ signal: 'Flooding', contribution: 8, detail: `${user.posts_in_last_hour} posts in last hour` });
-  } else if (user.posts_in_last_hour > 2) {
+  } else if (user.posts_in_last_hour >= freq.highRateThreshold) {
     accountRiskRaw += 4;
     signals.push({ signal: 'High posting rate', contribution: 4, detail: `${user.posts_in_last_hour} posts in last hour` });
   }
@@ -942,9 +982,12 @@ export async function extractSignals(
  * This is the primary scoring entry point going forward.
  */
 export async function computeFullScore(input: SignalExtractionInput): Promise<FullScoringOutput> {
-  const content = extractContentSignals(input.title, input.body);
-  const rules = extractRuleSignals(input.ruleMatches);
-  const user = await extractUserSignals(input.author);
+  const [content, rules, user, settings] = await Promise.all([
+    Promise.resolve(extractContentSignals(input.title, input.body)),
+    Promise.resolve(extractRuleSignals(input.ruleMatches)),
+    extractUserSignals(input.author),
+    getSettings(),
+  ]);
 
   const downvoteRatio =
     input.upvoteRatio ??
@@ -968,6 +1011,7 @@ export async function computeFullScore(input: SignalExtractionInput): Promise<Fu
     input.reportCount, downvoteRatio,
     Math.max(0, timeInQueueMs), relatedItemInQueue,
     `${input.title} ${input.body}`,
+    settings,
   );
 
   return {
