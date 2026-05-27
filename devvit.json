@@ -7,9 +7,6 @@
       "default": {
         "inline": true,
         "entry": "splash.html"
-      },
-      "game": {
-        "entry": "game.html"
       }
     }
   },
