@@ -66,7 +66,7 @@ export interface SimilarCase {
 
 /** Recommended moderation action */
 export interface ModRecommendation {
-  action: 'approve' | 'remove' | 'lock' | 'approve_with_flair';
+  action: 'approve' | 'remove' | 'spam' | 'approve_with_flair' | 'ban';
   flair?: string;
   confidence: number;
   reasoning: string;
@@ -115,7 +115,7 @@ export interface ContextResponse {
 /** API response for decision recording */
 export interface DecisionRequest {
   queueItemId: string;
-  action: 'approve' | 'remove' | 'lock' | 'approve_with_flair';
+  action: 'approve' | 'remove' | 'spam' | 'approve_with_flair' | 'ban';
   reason?: string;
   flair?: string;
   moderatorNote?: string;
@@ -167,7 +167,7 @@ export interface QueueItem {
   createdAt: string;
   flag: string;
   flagSeverity: Severity;
-  recAction: 'approve' | 'remove' | 'lock' | 'approve_with_flair';
+  recAction: 'approve' | 'remove' | 'spam' | 'approve_with_flair' | 'ban';
   recConfidence: number;
   priority: number;
   reviewing?: {

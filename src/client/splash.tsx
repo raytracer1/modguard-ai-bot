@@ -18,8 +18,9 @@ const severityColors: Record<string, string> = {
 
 const actionStyles: Record<string, string> = {
   remove: 'bg-red-600 hover:bg-red-500 text-white',
-  lock: 'bg-amber-600 hover:bg-amber-500 text-white',
+  spam: 'bg-pink-600 hover:bg-pink-500 text-white',
   approve: 'bg-emerald-600 hover:bg-emerald-500 text-white',
+  ban: 'bg-red-800 hover:bg-red-700 text-white',
 };
 
 export const Splash = () => {
@@ -32,16 +33,16 @@ export const Splash = () => {
   const [showRules, setShowRules] = useState(false);
   const [rulesJson, setRulesJson] = useState('');
   const [rulesMsg, setRulesMsg] = useState<string | null>(null);
-  const [removingId, setRemovingId] = useState<string | null>(null);
+  const [picker, setPicker] = useState<{
+    itemId: string;
+    options: string[];
+    label: string;
+    action: 'remove' | 'approve_with_flair';
+    variant: 'danger' | 'info';
+  } | null>(null);
 
-  const REMOVAL_REASONS = [
-    'Violates community rules',
-    'Spam',
-    'Harassment',
-    'Low quality / low effort',
-    'Personal information',
-    'Incitement / trolling',
-  ];
+  const FLAIR_OPTIONS = ['Rule Violation', 'Spam', 'Low Quality', 'Misinformation', 'Warning', 'Approved'];
+  const REMOVAL_REASONS = ['Violates community rules', 'Spam', 'Harassment', 'Low quality / low effort', 'Personal information', 'Incitement / trolling'];
 
   const fetchQueue = useCallback(async () => {
     try {
@@ -112,7 +113,7 @@ export const Splash = () => {
   const handleDecision = useCallback(
     async (
       itemId: string,
-      action: 'approve' | 'remove' | 'lock' | 'approve_with_flair',
+      action: 'approve' | 'remove' | 'spam' | 'approve_with_flair' | 'ban',
       reason?: string
     ) => {
       try {
@@ -125,7 +126,7 @@ export const Splash = () => {
           setItems((prev) => prev.filter((i) => i.id !== itemId));
           setExpandedId(null);
           setModContext(null);
-          setRemovingId(null);
+          setPicker(null);
           setDecisionMsg(reason ? `${action} — ${reason}` : `${action} — done`);
           // Clear reviewing
           fetch('/api/reviewing/stop', {
@@ -191,6 +192,37 @@ export const Splash = () => {
       setRulesMsg('Invalid JSON');
     }
   }, [rulesJson]);
+
+  const OptionPicker = () => {
+    if (!picker) return null;
+    const btnClass =
+      picker.variant === 'danger'
+        ? 'bg-red-500/10 border-red-500/20 text-red-400 hover:bg-red-500/20'
+        : 'bg-blue-500/10 border-blue-500/20 text-blue-400 hover:bg-blue-500/20';
+    return (
+      <div className="space-y-1.5">
+        <div className="text-[10px] text-gray-500 font-medium">{picker.label}</div>
+        {picker.options.map((opt) => (
+          <button
+            key={opt}
+            onClick={() => {
+              handleDecision(picker.itemId, picker.action, opt);
+              setPicker(null);
+            }}
+            className={`w-full text-left px-3 py-1.5 rounded-lg border text-xs cursor-pointer transition-colors ${btnClass}`}
+          >
+            {opt}
+          </button>
+        ))}
+        <button
+          onClick={() => setPicker(null)}
+          className="w-full text-center py-1 text-[10px] text-gray-600 hover:text-gray-400 cursor-pointer"
+        >
+          Cancel
+        </button>
+      </div>
+    );
+  };
 
   return (
     <div className="flex flex-col min-h-screen bg-gray-950">
@@ -344,11 +376,9 @@ export const Splash = () => {
                     <div className="text-right shrink-0">
                       <span
                         className={`text-[10px] px-2 py-1 rounded font-medium capitalize ${
-                          item.recAction === 'remove'
+                          (item.recAction === 'remove' || item.recAction === 'spam' || item.recAction === 'ban')
                             ? 'bg-red-500/10 text-red-400'
-                            : item.recAction === 'lock'
-                              ? 'bg-amber-500/10 text-amber-400'
-                              : 'bg-emerald-500/10 text-emerald-400'
+                            : 'bg-emerald-500/10 text-emerald-400'
                         }`}
                       >
                         {item.recAction.replace('_', ' + ')}
@@ -430,51 +460,60 @@ export const Splash = () => {
                         </div>
 
                         {/* Action buttons or removal reasons */}
-                        {removingId === item.id ? (
-                          <div className="space-y-1.5">
-                            <div className="text-[10px] text-gray-500 font-medium">
-                              Select removal reason:
-                            </div>
-                            {REMOVAL_REASONS.map((reason) => (
-                              <button
-                                key={reason}
-                                onClick={() =>
-                                  handleDecision(item.id, 'remove', reason)
-                                }
-                                className="w-full text-left px-3 py-1.5 rounded-lg bg-red-500/10 border border-red-500/20 text-xs text-red-400 hover:bg-red-500/20 cursor-pointer transition-colors"
-                              >
-                                {reason}
-                              </button>
-                            ))}
-                            <button
-                              onClick={() => setRemovingId(null)}
-                              className="w-full text-center py-1 text-[10px] text-gray-600 hover:text-gray-400 cursor-pointer"
-                            >
-                              Cancel
-                            </button>
-                          </div>
+                        {picker?.itemId === item.id ? (
+                          <OptionPicker />
                         ) : (
-                          <div className="flex gap-2">
-                            <button
-                              onClick={() =>
-                                handleDecision(item.id, 'approve')
-                              }
-                              className={`flex-1 py-2 rounded-lg text-xs font-medium cursor-pointer transition-colors ${actionStyles.approve}`}
-                            >
-                              Approve
-                            </button>
-                            <button
-                              onClick={() => handleDecision(item.id, 'lock')}
-                              className={`flex-1 py-2 rounded-lg text-xs font-medium cursor-pointer transition-colors ${actionStyles.lock}`}
-                            >
-                              Lock
-                            </button>
-                            <button
-                              onClick={() => setRemovingId(item.id)}
-                              className={`flex-1 py-2 rounded-lg text-xs font-medium cursor-pointer transition-colors ${actionStyles.remove}`}
-                            >
-                              Remove
-                            </button>
+                          <div className="space-y-2">
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => handleDecision(item.id, 'approve')}
+                                className={`flex-1 py-2 rounded-lg text-xs font-medium cursor-pointer transition-colors ${actionStyles.approve}`}
+                              >
+                                Approve
+                              </button>
+                              <button
+                                onClick={() =>
+                                  setPicker({
+                                    itemId: item.id,
+                                    options: FLAIR_OPTIONS,
+                                    label: 'Select flair:',
+                                    action: 'approve_with_flair',
+                                    variant: 'info',
+                                  })
+                                }
+                                className="flex-1 py-2 rounded-lg text-xs font-medium cursor-pointer transition-colors bg-blue-600 hover:bg-blue-500 text-white"
+                              >
+                                Approve + Flair
+                              </button>
+                            </div>
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() =>
+                                  setPicker({
+                                    itemId: item.id,
+                                    options: REMOVAL_REASONS,
+                                    label: 'Select removal reason:',
+                                    action: 'remove',
+                                    variant: 'danger',
+                                  })
+                                }
+                                className={`flex-1 py-2 rounded-lg text-xs font-medium cursor-pointer transition-colors ${actionStyles.remove}`}
+                              >
+                                Remove
+                              </button>
+                              <button
+                                onClick={() => handleDecision(item.id, 'spam')}
+                                className={`flex-1 py-2 rounded-lg text-xs font-medium cursor-pointer transition-colors ${actionStyles.spam}`}
+                              >
+                                Spam
+                              </button>
+                              <button
+                                onClick={() => handleDecision(item.id, 'ban')}
+                                className={`flex-1 py-2 rounded-lg text-xs font-medium cursor-pointer transition-colors ${actionStyles.ban}`}
+                              >
+                                Ban u/{item.author}
+                              </button>
+                            </div>
                           </div>
                         )}
                       </div>

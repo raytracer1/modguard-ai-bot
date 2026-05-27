@@ -31,7 +31,10 @@
   "triggers": {
     "onAppInstall": "/internal/triggers/on-app-install",
     "onPostCreate": "/internal/triggers/on-content-create",
-    "onCommentCreate": "/internal/triggers/on-content-create"
+    "onCommentCreate": "/internal/triggers/on-content-create",
+    "onPostDelete": "/internal/triggers/on-content-delete",
+    "onCommentDelete": "/internal/triggers/on-content-delete",
+    "onModAction": "/internal/triggers/on-mod-action"
   },
   "scripts": {
     "dev": "vite build --watch",

@@ -72,8 +72,8 @@ triggers.post('/on-content-create', async (c) => {
           recAction:
             primary.severity === 'critical' || primary.severity === 'high'
               ? ('remove' as const)
-              : primary.severity === 'medium'
-                ? ('lock' as const)
+              : primary.severity === 'low'
+                ? ('approve' as const)
                 : ('remove' as const),
           recConfidence: primary.confidence,
           priority,
@@ -124,8 +124,8 @@ triggers.post('/on-content-create', async (c) => {
           recAction:
             primary.severity === 'critical' || primary.severity === 'high'
               ? ('remove' as const)
-              : primary.severity === 'medium'
-                ? ('lock' as const)
+              : primary.severity === 'low'
+                ? ('approve' as const)
                 : ('remove' as const),
           recConfidence: primary.confidence,
           priority,
@@ -143,6 +143,72 @@ triggers.post('/on-content-create', async (c) => {
     return c.json<TriggerResponse>({ status: 'success' }, 200);
   } catch (error) {
     console.error('Content trigger error:', error);
+    return c.json<TriggerResponse>({ status: 'error' }, 500);
+  }
+});
+
+// ── Cleanup: remove deleted content from queue ──
+
+triggers.post('/on-content-delete', async (c) => {
+  try {
+    const input = await c.req.json<TriggerRequest>();
+    let deletedId: string | undefined;
+
+    if (input.type === 'PostDelete') {
+      deletedId = input.postId;
+    } else if (input.type === 'CommentDelete') {
+      deletedId = input.commentId;
+    }
+
+    if (deletedId) {
+      const raw = await redis.get('mg:queue');
+      if (raw) {
+        const queue = JSON.parse(raw);
+        const filtered = queue.filter(
+          (q: { id: string }) => q.id !== deletedId
+        );
+        if (filtered.length !== queue.length) {
+          await redis.set('mg:queue', JSON.stringify(filtered));
+        }
+      }
+    }
+
+    return c.json<TriggerResponse>({ status: 'success' }, 200);
+  } catch (error) {
+    console.error('Delete trigger error:', error);
+    return c.json<TriggerResponse>({ status: 'error' }, 500);
+  }
+});
+
+// ── Mod action: sync approve/remove/spam/lock to queue ──
+
+triggers.post('/on-mod-action', async (c) => {
+  try {
+    const input = await c.req.json<TriggerRequest>();
+    if (input.type !== 'ModAction') {
+      return c.json<TriggerResponse>({ status: 'success' }, 200);
+    }
+
+    const targetId =
+      input.targetPost?.id ?? input.targetComment?.id;
+
+    if (targetId) {
+      const raw = await redis.get('mg:queue');
+      if (raw) {
+        const queue = JSON.parse(raw);
+        const before = queue.length;
+        const filtered = queue.filter(
+          (q: { id: string }) => q.id !== targetId
+        );
+        if (filtered.length !== before) {
+          await redis.set('mg:queue', JSON.stringify(filtered));
+        }
+      }
+    }
+
+    return c.json<TriggerResponse>({ status: 'success' }, 200);
+  } catch (error) {
+    console.error('Mod action trigger error:', error);
     return c.json<TriggerResponse>({ status: 'error' }, 500);
   }
 });

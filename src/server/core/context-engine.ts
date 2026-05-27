@@ -51,11 +51,11 @@ function generateRecommendation(ruleMatches: RuleMatch[]): ModRecommendation {
     };
   }
 
-  if (mediumMatches.length === 1 && mediumMatches[0]) {
+  if (mediumMatches.length >= 1 && mediumMatches[0]) {
     return {
-      action: 'lock',
-      confidence: 70,
-      reasoning: `Medium-severity rule match: ${mediumMatches[0].rule.title}. Locking prevents further escalation while preserving context. Review before escalating to removal.`,
+      action: 'remove',
+      confidence: 65,
+      reasoning: `Medium-severity rule match: ${mediumMatches[0].rule.title}. Review content before removal.`,
     };
   }
 

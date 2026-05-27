@@ -173,12 +173,33 @@ api.post('/decision', async (c) => {
 
     // Execute the Reddit action
     try {
+      const id = body.queueItemId as any; // eslint-disable-line
       if (body.action === 'remove') {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        await reddit.remove(body.queueItemId as any, false);
+        await reddit.remove(id, false);
+      } else if (body.action === 'spam') {
+        await reddit.remove(id, true);
       } else if (body.action === 'approve' || body.action === 'approve_with_flair') {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        await reddit.approve(body.queueItemId as any);
+        await reddit.approve(id);
+        if (body.action === 'approve_with_flair' && body.reason) {
+          await reddit.setPostFlair({
+            postId: id,
+            subredditName: context.subredditName ?? '',
+            text: body.reason,
+            textColor: 'dark',
+          });
+        }
+      } else if (body.action === 'ban') {
+        const raw = await redis.get('mg:queue');
+        const queue = raw ? JSON.parse(raw) : [];
+        const item = queue.find((q: { id: string }) => q.id === body.queueItemId);
+        if (item) {
+          await reddit.banUser({
+            username: item.author,
+            subredditName: context.subredditName ?? '',
+            reason: body.reason ?? 'Rule violation',
+            context: body.queueItemId,
+          });
+        }
       }
     } catch (actionError) {
       console.error('Failed to execute Reddit action:', actionError);
