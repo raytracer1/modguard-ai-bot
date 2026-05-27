@@ -169,6 +169,7 @@ export interface QueueItem {
   flagSeverity: Severity;
   recAction: 'approve' | 'remove' | 'lock' | 'approve_with_flair';
   recConfidence: number;
+  priority: number;
   reviewing?: {
     username: string;
     since: number;

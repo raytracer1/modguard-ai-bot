@@ -281,9 +281,10 @@ api.get('/queue', async (c) => {
       recAction: string;
       recConfidence: number;
       reviewing?: { username: string; since: number };
+      priority?: number;
     }> = raw ? JSON.parse(raw) : [];
 
-    // Attach reviewing status to each item
+    // Attach reviewing status and sort by priority
     for (const item of queue) {
       const reviewingRaw = await redis.get(`mg:reviewing:${item.id}`);
       if (reviewingRaw) {
@@ -294,6 +295,8 @@ api.get('/queue', async (c) => {
         }
       }
     }
+
+    queue.sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0));
 
     return c.json({ type: 'queue', items: queue }, 200);
   } catch (error) {

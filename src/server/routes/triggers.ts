@@ -51,6 +51,13 @@ triggers.post('/on-content-create', async (c) => {
       const primary = matches.find((m) => m.matched);
 
       if (primary) {
+        const severityWeight: Record<string, number> = { critical: 100, high: 75, medium: 50, low: 25 };
+        const priority =
+          (severityWeight[primary.severity] ?? 25) +
+          (post.numReports ?? 0) * 5 +
+          Math.min(Math.max(0, -(post.score ?? 0)), 20) +
+          primary.confidence * 0.3;
+
         const item = {
           id: post.id,
           title,
@@ -69,6 +76,7 @@ triggers.post('/on-content-create', async (c) => {
                 ? ('lock' as const)
                 : ('remove' as const),
           recConfidence: primary.confidence,
+          priority,
         };
 
         const raw = await redis.get(QUEUE_KEY);
@@ -95,6 +103,13 @@ triggers.post('/on-content-create', async (c) => {
       const primary = matches.find((m) => m.matched);
 
       if (primary) {
+        const severityWeight: Record<string, number> = { critical: 100, high: 75, medium: 50, low: 25 };
+        const priority =
+          (severityWeight[primary.severity] ?? 25) +
+          (comment.numReports ?? 0) * 5 +
+          Math.min(Math.max(0, -(comment.score ?? 0)), 20) +
+          primary.confidence * 0.3;
+
         const item = {
           id: comment.id,
           title: '',
@@ -113,6 +128,7 @@ triggers.post('/on-content-create', async (c) => {
                 ? ('lock' as const)
                 : ('remove' as const),
           recConfidence: primary.confidence,
+          priority,
         };
 
         const raw = await redis.get(QUEUE_KEY);

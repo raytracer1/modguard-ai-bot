@@ -321,6 +321,19 @@ export const Splash = () => {
                       </div>
                       <div className="text-[11px] text-gray-500 mt-0.5">
                         u/{item.author} · {item.score} pts
+                        {item.priority != null && (
+                          <span
+                            className={`ml-2 text-[10px] font-mono ${
+                              item.priority >= 80
+                                ? 'text-red-400'
+                                : item.priority >= 50
+                                  ? 'text-amber-400'
+                                  : 'text-blue-400'
+                            }`}
+                          >
+                            P{item.priority.toFixed(0)}
+                          </span>
+                        )}
                         {item.reviewing && expandedId !== item.id && (
                           <span className="text-amber-400 ml-2">
                             · reviewing: u/{item.reviewing.username}
