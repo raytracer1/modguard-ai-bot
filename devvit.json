@@ -22,13 +22,6 @@
         "location": "subreddit",
         "forUserType": "moderator",
         "endpoint": "/internal/menu/modguard-context"
-      },
-      {
-        "label": "Create a new post",
-        "description": "modguard-ai-bot",
-        "location": "subreddit",
-        "forUserType": "moderator",
-        "endpoint": "/internal/menu/post-create"
       }
     ]
   },

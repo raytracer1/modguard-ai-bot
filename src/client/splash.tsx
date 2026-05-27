@@ -22,11 +22,6 @@ const actionStyles: Record<string, string> = {
   approve: 'bg-emerald-600 hover:bg-emerald-500 text-white',
 };
 
-function fmtNum(n: number): string {
-  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
-  return String(n);
-}
-
 export const Splash = () => {
   const [items, setItems] = useState<QueueItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -34,6 +29,9 @@ export const Splash = () => {
   const [modContext, setModContext] = useState<ModContext | null>(null);
   const [ctxLoading, setCtxLoading] = useState(false);
   const [decisionMsg, setDecisionMsg] = useState<string | null>(null);
+  const [showRules, setShowRules] = useState(false);
+  const [rulesJson, setRulesJson] = useState('');
+  const [rulesMsg, setRulesMsg] = useState<string | null>(null);
 
   const fetchQueue = useCallback(async () => {
     try {
@@ -132,6 +130,56 @@ export const Splash = () => {
     []
   );
 
+  const handleToggleRules = useCallback(async () => {
+    if (!showRules) {
+      try {
+        const res = await fetch('/api/rules');
+        const data = await res.json();
+        setRulesJson(JSON.stringify(data.rules || [], null, 2));
+        setRulesMsg(null);
+      } catch {
+        setRulesJson('[\n  \n]');
+      }
+    }
+    setShowRules(!showRules);
+  }, [showRules]);
+
+  const handleResetRules = useCallback(async () => {
+    try {
+      await fetch('/api/rules', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rules: [] }),
+      });
+      // Reload to get defaults
+      const res = await fetch('/api/rules');
+      const data = await res.json();
+      setRulesJson(JSON.stringify(data.rules, null, 2));
+      setRulesMsg('Reset to defaults');
+      setTimeout(() => setRulesMsg(null), 3000);
+    } catch {
+      setRulesMsg('Reset failed');
+    }
+  }, []);
+
+  const handleSaveRules = useCallback(async () => {
+    try {
+      const rules = JSON.parse(rulesJson);
+      if (!Array.isArray(rules)) throw new Error('Not an array');
+      const res = await fetch('/api/rules', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rules }),
+      });
+      if (res.ok) {
+        setRulesMsg(`Saved ${rules.length} rules`);
+        setTimeout(() => setRulesMsg(null), 3000);
+      }
+    } catch {
+      setRulesMsg('Invalid JSON');
+    }
+  }, [rulesJson]);
+
   return (
     <div className="flex flex-col min-h-screen bg-gray-950">
       {/* Header */}
@@ -145,12 +193,69 @@ export const Splash = () => {
             </p>
           </div>
         </div>
-        {decisionMsg && (
-          <span className="text-[10px] px-2 py-1 rounded bg-emerald-500/20 text-emerald-400">
-            {decisionMsg}
-          </span>
-        )}
+        <div className="flex items-center gap-2">
+          {decisionMsg && (
+            <span className="text-[10px] px-2 py-1 rounded bg-emerald-500/20 text-emerald-400">
+              {decisionMsg}
+            </span>
+          )}
+          <button
+            onClick={handleToggleRules}
+            className={`text-xs px-2 py-1 rounded cursor-pointer transition-colors ${
+              showRules
+                ? 'bg-blue-500/20 text-blue-400'
+                : 'text-gray-600 hover:text-gray-400'
+            }`}
+          >
+            Rules
+          </button>
+        </div>
       </div>
+
+      {/* Rules config panel */}
+      {showRules && (
+        <div className="px-4 py-3 border-b border-gray-800 bg-gray-900/50 shrink-0">
+          <div className="text-xs font-medium text-gray-300 mb-2">
+            Custom Rules (JSON)
+          </div>
+          <textarea
+            className="w-full h-32 p-2 rounded-lg bg-gray-800 border border-gray-700 text-xs text-gray-200 font-mono resize-none focus:outline-none focus:border-blue-500/50"
+            value={rulesJson}
+            onChange={(e) => setRulesJson(e.target.value)}
+            spellCheck={false}
+          />
+          <div className="flex items-center justify-between mt-2">
+            <span className="text-[10px] text-gray-600">
+              name, patterns, severity, description, enabled
+            </span>
+            <div className="flex gap-2">
+              {rulesMsg && (
+                <span className="text-[10px] text-emerald-400 self-center">
+                  {rulesMsg}
+                </span>
+              )}
+              <button
+                onClick={handleResetRules}
+                className="text-[10px] px-2 py-1 rounded text-red-500 hover:text-red-400 cursor-pointer"
+              >
+                Reset
+              </button>
+              <button
+                onClick={handleToggleRules}
+                className="text-[10px] px-2 py-1 rounded text-gray-500 hover:text-gray-300 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveRules}
+                className="text-[10px] px-3 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white cursor-pointer font-medium"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Queue list */}
       <div className="flex-1 overflow-y-auto">
@@ -261,56 +366,35 @@ export const Splash = () => {
                           </p>
                         </div>
 
-                        {/* User info + Rule matches side by side */}
-                        <div className="grid grid-cols-2 gap-2">
-                          <div className="p-3 rounded-lg bg-gray-800/50 border border-gray-700/30">
-                            <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-600 mb-1.5">
-                              User
-                            </div>
-                            <div className="text-xs text-gray-300">
-                              u/{modContext.userProfile.username}
-                            </div>
-                            <div className="text-[10px] text-gray-500">
-                              {modContext.userProfile.accountAgeDays}d old ·{' '}
-                              {fmtNum(modContext.userProfile.karma)} karma ·{' '}
-                              {modContext.userProfile.previousViolations}{' '}
-                              violations
-                            </div>
-                            {modContext.userProfile.isNewAccount && (
-                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 mt-1 inline-block">
-                                New account
-                              </span>
-                            )}
+                        {/* Matched rules */}
+                        <div className="p-3 rounded-lg bg-gray-800/50 border border-gray-700/30">
+                          <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-600 mb-1.5">
+                            Matched Rules
                           </div>
-                          <div className="p-3 rounded-lg bg-gray-800/50 border border-gray-700/30">
-                            <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-600 mb-1.5">
-                              Rules
-                            </div>
-                            {modContext.ruleMatches
-                              .filter((m) => m.matched)
-                              .slice(0, 3)
-                              .map((m) => (
-                                <div
-                                  key={m.rule.id}
-                                  className="text-[10px] text-gray-400 mb-1"
+                          {modContext.ruleMatches
+                            .filter((m) => m.matched)
+                            .slice(0, 5)
+                            .map((m) => (
+                              <div
+                                key={m.rule.id}
+                                className="text-[10px] text-gray-400 mb-1"
+                              >
+                                <span
+                                  className={`px-1 py-0.5 rounded ${
+                                    severityColors[m.severity]
+                                  }`}
                                 >
-                                  <span
-                                    className={`px-1 py-0.5 rounded ${
-                                      severityColors[m.severity]
-                                    }`}
-                                  >
-                                    {m.severity}
-                                  </span>{' '}
-                                  {m.rule.title}
-                                </div>
-                              ))}
-                            {modContext.ruleMatches.filter((m) => m.matched)
-                              .length === 0 && (
-                              <div className="text-[10px] text-gray-500">
-                                No violations
+                                  {m.severity}
+                                </span>{' '}
+                                {m.rule.title}
                               </div>
-                            )}
-                          </div>
+                            ))}
+                          {modContext.ruleMatches.filter((m) => m.matched)
+                            .length === 0 && (
+                            <div className="text-[10px] text-gray-500">
+                              No violations detected
+                            </div>
+                          )}
                         </div>
 
                         {/* Recommendation reasoning */}

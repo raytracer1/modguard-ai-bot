@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import type { TriggerRequest, TriggerResponse } from '@devvit/web/shared';
 import { context, redis } from '@devvit/web/server';
-import { analyzeContent } from '../core/rule-engine';
+import { analyzeContent, loadCustomRules } from '../core/rule-engine';
 import { createPost } from '../core/post';
 
 const QUEUE_KEY = 'mg:queue';
@@ -35,6 +35,7 @@ triggers.post('/on-app-install', async (c) => {
 triggers.post('/on-content-create', async (c) => {
   try {
     const input = await c.req.json<TriggerRequest>();
+    const customRules = await loadCustomRules();
 
     if (input.type === 'PostCreate') {
       const post = input.post;
@@ -46,7 +47,7 @@ triggers.post('/on-content-create', async (c) => {
       const body = post.selftext ?? '';
       const author = input.author?.name ?? 'unknown';
 
-      const matches = analyzeContent(title, body, author);
+      const matches = analyzeContent(title, body, author, customRules);
       const primary = matches.find((m) => m.matched);
 
       if (primary) {
@@ -64,7 +65,7 @@ triggers.post('/on-content-create', async (c) => {
           recAction:
             primary.severity === 'critical' || primary.severity === 'high'
               ? ('remove' as const)
-              : primary.rule.id === 'rule-7'
+              : primary.severity === 'medium'
                 ? ('lock' as const)
                 : ('remove' as const),
           recConfidence: primary.confidence,
@@ -90,7 +91,7 @@ triggers.post('/on-content-create', async (c) => {
       const body = comment.body ?? '';
       const author = comment.author ?? 'unknown';
 
-      const matches = analyzeContent('', body, author);
+      const matches = analyzeContent('', body, author, customRules);
       const primary = matches.find((m) => m.matched);
 
       if (primary) {
@@ -108,7 +109,7 @@ triggers.post('/on-content-create', async (c) => {
           recAction:
             primary.severity === 'critical' || primary.severity === 'high'
               ? ('remove' as const)
-              : primary.rule.id === 'rule-7'
+              : primary.severity === 'medium'
                 ? ('lock' as const)
                 : ('remove' as const),
           recConfidence: primary.confidence,

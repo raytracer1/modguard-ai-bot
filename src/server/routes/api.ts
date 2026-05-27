@@ -214,6 +214,28 @@ api.post('/decision', async (c) => {
   }
 });
 
+// ── Custom rules configuration ──
+
+api.get('/rules', async (c) => {
+  try {
+    const { loadCustomRules } = await import('../core/rule-engine');
+    const rules = await loadCustomRules();
+    return c.json({ rules }, 200);
+  } catch {
+    return c.json({ rules: [] }, 200);
+  }
+});
+
+api.post('/rules', async (c) => {
+  try {
+    const { rules } = await c.req.json<{ rules: unknown }>();
+    await redis.set('mg:rules', JSON.stringify(rules));
+    return c.json({ status: 'ok' }, 200);
+  } catch {
+    return c.json({ status: 'error' }, 500);
+  }
+});
+
 // ── Collaboration: mark item as being reviewed ──
 
 api.post('/reviewing', async (c) => {

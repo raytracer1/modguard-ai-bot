@@ -145,6 +145,15 @@ export interface ErrorResponse {
   message: string;
 }
 
+/** A custom rule configured by moderators */
+export interface CustomRule {
+  name: string;
+  patterns: string[];
+  severity: Severity;
+  description: string;
+  enabled: boolean;
+}
+
 /** Queue item for the list view */
 export interface QueueItem {
   id: string;
