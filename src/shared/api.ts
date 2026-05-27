@@ -34,4 +34,6 @@ export type {
   ModStats,
   StatsResponse,
   ErrorResponse,
+  QueueItem,
+  QueueResponse,
 } from './types';

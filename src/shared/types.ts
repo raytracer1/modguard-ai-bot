@@ -144,3 +144,25 @@ export interface ErrorResponse {
   status: 'error';
   message: string;
 }
+
+/** Queue item for the list view */
+export interface QueueItem {
+  id: string;
+  title: string;
+  body: string;
+  author: string;
+  type: 'post' | 'comment';
+  reportCount: number;
+  score: number;
+  createdAt: string;
+  flag: string;
+  flagSeverity: Severity;
+  recAction: 'approve' | 'remove' | 'lock' | 'approve_with_flair';
+  recConfidence: number;
+}
+
+/** API response for queue list */
+export interface QueueResponse {
+  type: 'queue';
+  items: QueueItem[];
+}

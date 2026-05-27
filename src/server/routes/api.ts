@@ -196,6 +196,76 @@ api.post('/decision', async (c) => {
   }
 });
 
+api.get('/queue', async (c) => {
+  try {
+    const subredditName = context.subredditName ?? '';
+    if (!subredditName) {
+      return c.json({ type: 'queue', items: [] }, 200);
+    }
+
+    // Fetch items from the mod queue — processed items auto-disappear
+    const listing = await reddit.getModQueue({
+      subreddit: subredditName,
+      type: 'all',
+      limit: 25,
+    });
+
+    const { analyzeContent } = await import('../core/rule-engine');
+
+    const items = [];
+
+    for (const item of listing.children) {
+      const isPost = 'title' in item;
+      const itemTitle = (isPost ? item.title : '') ?? '';
+      const itemBody = (item.body as string | undefined) ?? '';
+      const itemAuthor = item.authorName ?? 'unknown';
+
+      const ruleMatches = analyzeContent(itemTitle, itemBody, itemAuthor);
+      const primaryMatch = ruleMatches.find((m) => m.matched);
+
+      if (primaryMatch) {
+        items.push({
+          id: item.id,
+          title: itemTitle,
+          body: itemBody,
+          author: itemAuthor,
+          type: isPost ? ('post' as const) : ('comment' as const),
+          reportCount: 0,
+          score: item.score ?? 0,
+          createdAt: (item.createdAt as Date | undefined)?.toISOString() ?? new Date().toISOString(),
+          flag: primaryMatch.rule.title,
+          flagSeverity: primaryMatch.severity,
+          recAction:
+            primaryMatch.severity === 'critical' || primaryMatch.severity === 'high'
+              ? ('remove' as const)
+              : primaryMatch.rule.id === 'rule-7'
+                ? ('lock' as const)
+                : ('remove' as const),
+          recConfidence: primaryMatch.confidence,
+        });
+      }
+    }
+
+    // Sort by severity
+    const severityOrder: Record<string, number> = {
+      critical: 4,
+      high: 3,
+      medium: 2,
+      low: 1,
+    };
+    items.sort(
+      (a, b) =>
+        (severityOrder[b.flagSeverity] ?? 0) -
+        (severityOrder[a.flagSeverity] ?? 0)
+    );
+
+    return c.json({ type: 'queue', items }, 200);
+  } catch (error) {
+    console.error('Queue fetch error:', error);
+    return c.json({ type: 'queue', items: [] }, 200);
+  }
+});
+
 api.get('/stats', async (c) => {
   try {
     const [analyzed, approved, removed, locked] = await Promise.all([
