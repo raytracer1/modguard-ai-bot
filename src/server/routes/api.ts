@@ -214,6 +214,33 @@ api.post('/decision', async (c) => {
   }
 });
 
+// ── Collaboration: mark item as being reviewed ──
+
+api.post('/reviewing', async (c) => {
+  try {
+    const { itemId } = await c.req.json<{ itemId: string }>();
+    const username = await reddit.getCurrentUsername();
+    await redis.set(
+      `mg:reviewing:${itemId}`,
+      JSON.stringify({ username, since: Date.now() }),
+      // TTL-like: we'll just overwrite on re-expand
+    );
+    return c.json({ status: 'ok' }, 200);
+  } catch {
+    return c.json({ status: 'error' }, 500);
+  }
+});
+
+api.post('/reviewing/stop', async (c) => {
+  try {
+    const { itemId } = await c.req.json<{ itemId: string }>();
+    await redis.del(`mg:reviewing:${itemId}`);
+    return c.json({ status: 'ok' }, 200);
+  } catch {
+    return c.json({ status: 'error' }, 500);
+  }
+});
+
 api.get('/queue', async (c) => {
   try {
     const raw = await redis.get('mg:queue');
@@ -230,7 +257,20 @@ api.get('/queue', async (c) => {
       flagSeverity: string;
       recAction: string;
       recConfidence: number;
+      reviewing?: { username: string; since: number };
     }> = raw ? JSON.parse(raw) : [];
+
+    // Attach reviewing status to each item
+    for (const item of queue) {
+      const reviewingRaw = await redis.get(`mg:reviewing:${item.id}`);
+      if (reviewingRaw) {
+        try {
+          item.reviewing = JSON.parse(reviewingRaw);
+        } catch {
+          // ignore malformed data
+        }
+      }
+    }
 
     return c.json({ type: 'queue', items: queue }, 200);
   } catch (error) {

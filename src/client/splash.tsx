@@ -54,14 +54,27 @@ export const Splash = () => {
   const handleExpand = useCallback(
     async (item: QueueItem) => {
       if (expandedId === item.id) {
+        // Collapsing — clear reviewing
         setExpandedId(null);
         setModContext(null);
+        fetch('/api/reviewing/stop', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ itemId: item.id }),
+        }).catch(() => {});
         return;
       }
+      // Expanding — mark as reviewing
       setExpandedId(item.id);
       setModContext(null);
       setDecisionMsg(null);
       setCtxLoading(true);
+
+      fetch('/api/reviewing', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ itemId: item.id }),
+      }).catch(() => {});
 
       try {
         const res = await fetch('/api/context', {
@@ -104,6 +117,12 @@ export const Splash = () => {
           setExpandedId(null);
           setModContext(null);
           setDecisionMsg(`${action} — done`);
+          // Clear reviewing
+          fetch('/api/reviewing/stop', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ itemId }),
+          }).catch(() => {});
           setTimeout(() => setDecisionMsg(null), 3000);
         }
       } catch (err) {
@@ -185,6 +204,11 @@ export const Splash = () => {
                       </div>
                       <div className="text-[11px] text-gray-500 mt-0.5">
                         u/{item.author} · {item.score} pts
+                        {item.reviewing && expandedId !== item.id && (
+                          <span className="text-amber-400 ml-2">
+                            · reviewing: u/{item.reviewing.username}
+                          </span>
+                        )}
                       </div>
                     </div>
                     <div className="text-right shrink-0">

@@ -159,6 +159,10 @@ export interface QueueItem {
   flagSeverity: Severity;
   recAction: 'approve' | 'remove' | 'lock' | 'approve_with_flair';
   recConfidence: number;
+  reviewing?: {
+    username: string;
+    since: number;
+  };
 }
 
 /** API response for queue list */
