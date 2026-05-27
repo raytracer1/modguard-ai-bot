@@ -99,16 +99,9 @@ api.post('/decrement', async (c) => {
 // ── ModGuard AI context endpoints ──
 
 api.post('/context', async (c) => {
-  const { postId } = context;
-  if (!postId) {
-    return c.json<ErrorResponse>(
-      { status: 'error', message: 'postId is required' },
-      400
-    );
-  }
-
   try {
     const body = await c.req.json<{
+      id?: string;
       title?: string;
       content?: string;
       author?: string;
@@ -118,8 +111,10 @@ api.post('/context', async (c) => {
       type?: 'post' | 'comment';
     }>();
 
+    const itemId = body.id ?? context.postId ?? 'unknown';
+
     const queueItem: QueueItemInput = {
-      id: postId,
+      id: itemId,
       type: body.type ?? 'post',
       title: body.title ?? 'Untitled',
       body: body.content ?? '',
