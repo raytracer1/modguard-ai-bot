@@ -16,7 +16,7 @@ interface UseModContextState {
 export function useModContext() {
   const [state, setState] = useState<UseModContextState>({
     context: null,
-    loading: true,
+    loading: false,
     error: null,
     stats: null,
   });
