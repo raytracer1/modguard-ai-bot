@@ -175,6 +175,19 @@ api.post('/decision', async (c) => {
     // Update decision counter
     await redis.incrBy(`modguard:decisions:${body.action}`, 1);
 
+    // Execute the Reddit action
+    try {
+      if (body.action === 'remove') {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await reddit.remove(body.queueItemId as any, false);
+      } else if (body.action === 'approve' || body.action === 'approve_with_flair') {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await reddit.approve(body.queueItemId as any);
+      }
+    } catch (actionError) {
+      console.error('Failed to execute Reddit action:', actionError);
+    }
+
     // Remove item from queue
     const raw = await redis.get('mg:queue');
     if (raw) {

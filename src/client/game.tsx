@@ -7,6 +7,7 @@ import { ContextPanel } from './components/ContextPanel';
 import { StatsBar } from './components/StatsBar';
 
 interface AnalysisTarget {
+  id?: string;
   title: string;
   content: string;
   author: string;
@@ -41,11 +42,13 @@ export const App = () => {
     action: string;
     recorded: boolean;
   } | null>(null);
+  const [targetId, setTargetId] = useState<string | null>(null);
   const [noTarget, setNoTarget] = useState(false);
 
   useEffect(() => {
     const target = readAnalysisTarget();
     if (target) {
+      if (target.id) setTargetId(target.id);
       fetchContext({
         title: target.title,
         content: target.content,
@@ -64,10 +67,10 @@ export const App = () => {
       action: 'approve' | 'remove' | 'lock' | 'approve_with_flair',
       flair?: string
     ) => {
-      if (!context) return;
+      if (!targetId) return;
 
       const decision: { queueItemId: string; action: typeof action; flair?: string } = {
-        queueItemId: context.queueItem.id,
+        queueItemId: targetId,
         action,
       };
       if (flair !== undefined) {
@@ -80,7 +83,7 @@ export const App = () => {
         fetchStats();
       }
     },
-    [context, recordDecision, fetchStats]
+    [targetId, recordDecision, fetchStats]
   );
 
   if (noTarget) {

@@ -39,6 +39,7 @@ export const Splash = () => {
     sessionStorage.setItem(
       'modguard:analysisTarget',
       JSON.stringify({
+        id: item.id,
         title: item.title,
         content: item.body,
         author: item.author,
