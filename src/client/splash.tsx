@@ -556,7 +556,7 @@ export const Splash = () => {
                         u/{item.author} · {item.score} pts
                         {item.riskScore != null && (
                           <span
-                            className={`ml-2 text-[10px] font-mono ${
+                            className={`ml-2 text-[10px] ${
                               item.riskScore >= 15
                                 ? 'text-red-400'
                                 : item.riskScore >= 5
@@ -564,12 +564,12 @@ export const Splash = () => {
                                   : 'text-emerald-400'
                             }`}
                           >
-                            R{item.riskScore}
+                            Risk Score <span className="font-mono">{item.riskScore}</span>
                           </span>
                         )}
                         {item.priority != null && (
                           <span
-                            className={`ml-1 text-[10px] font-mono ${
+                            className={`ml-3 text-[10px] ${
                               item.priority >= 80
                                 ? 'text-red-400'
                                 : item.priority >= 50
@@ -577,7 +577,7 @@ export const Splash = () => {
                                   : 'text-blue-400'
                             }`}
                           >
-                            P{item.priority.toFixed(0)}
+                            Priority <span className="font-mono">{item.priority.toFixed(0)}</span>
                           </span>
                         )}
                         {item.riskRouting && (
