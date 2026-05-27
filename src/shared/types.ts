@@ -116,6 +116,7 @@ export interface ContextResponse {
 export interface DecisionRequest {
   queueItemId: string;
   action: 'approve' | 'remove' | 'lock' | 'approve_with_flair';
+  reason?: string;
   flair?: string;
   moderatorNote?: string;
 }

@@ -32,6 +32,16 @@ export const Splash = () => {
   const [showRules, setShowRules] = useState(false);
   const [rulesJson, setRulesJson] = useState('');
   const [rulesMsg, setRulesMsg] = useState<string | null>(null);
+  const [removingId, setRemovingId] = useState<string | null>(null);
+
+  const REMOVAL_REASONS = [
+    'Violates community rules',
+    'Spam',
+    'Harassment',
+    'Low quality / low effort',
+    'Personal information',
+    'Incitement / trolling',
+  ];
 
   const fetchQueue = useCallback(async () => {
     try {
@@ -102,19 +112,21 @@ export const Splash = () => {
   const handleDecision = useCallback(
     async (
       itemId: string,
-      action: 'approve' | 'remove' | 'lock' | 'approve_with_flair'
+      action: 'approve' | 'remove' | 'lock' | 'approve_with_flair',
+      reason?: string
     ) => {
       try {
         const res = await fetch('/api/decision', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ queueItemId: itemId, action }),
+          body: JSON.stringify({ queueItemId: itemId, action, reason }),
         });
         if (res.ok) {
           setItems((prev) => prev.filter((i) => i.id !== itemId));
           setExpandedId(null);
           setModContext(null);
-          setDecisionMsg(`${action} — done`);
+          setRemovingId(null);
+          setDecisionMsg(reason ? `${action} — ${reason}` : `${action} — done`);
           // Clear reviewing
           fetch('/api/reviewing/stop', {
             method: 'POST',
@@ -404,27 +416,54 @@ export const Splash = () => {
                           </p>
                         </div>
 
-                        {/* Action buttons */}
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => handleDecision(item.id, 'approve')}
-                            className={`flex-1 py-2 rounded-lg text-xs font-medium cursor-pointer transition-colors ${actionStyles.approve}`}
-                          >
-                            Approve
-                          </button>
-                          <button
-                            onClick={() => handleDecision(item.id, 'lock')}
-                            className={`flex-1 py-2 rounded-lg text-xs font-medium cursor-pointer transition-colors ${actionStyles.lock}`}
-                          >
-                            Lock
-                          </button>
-                          <button
-                            onClick={() => handleDecision(item.id, 'remove')}
-                            className={`flex-1 py-2 rounded-lg text-xs font-medium cursor-pointer transition-colors ${actionStyles.remove}`}
-                          >
-                            Remove
-                          </button>
-                        </div>
+                        {/* Action buttons or removal reasons */}
+                        {removingId === item.id ? (
+                          <div className="space-y-1.5">
+                            <div className="text-[10px] text-gray-500 font-medium">
+                              Select removal reason:
+                            </div>
+                            {REMOVAL_REASONS.map((reason) => (
+                              <button
+                                key={reason}
+                                onClick={() =>
+                                  handleDecision(item.id, 'remove', reason)
+                                }
+                                className="w-full text-left px-3 py-1.5 rounded-lg bg-red-500/10 border border-red-500/20 text-xs text-red-400 hover:bg-red-500/20 cursor-pointer transition-colors"
+                              >
+                                {reason}
+                              </button>
+                            ))}
+                            <button
+                              onClick={() => setRemovingId(null)}
+                              className="w-full text-center py-1 text-[10px] text-gray-600 hover:text-gray-400 cursor-pointer"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() =>
+                                handleDecision(item.id, 'approve')
+                              }
+                              className={`flex-1 py-2 rounded-lg text-xs font-medium cursor-pointer transition-colors ${actionStyles.approve}`}
+                            >
+                              Approve
+                            </button>
+                            <button
+                              onClick={() => handleDecision(item.id, 'lock')}
+                              className={`flex-1 py-2 rounded-lg text-xs font-medium cursor-pointer transition-colors ${actionStyles.lock}`}
+                            >
+                              Lock
+                            </button>
+                            <button
+                              onClick={() => setRemovingId(item.id)}
+                              className={`flex-1 py-2 rounded-lg text-xs font-medium cursor-pointer transition-colors ${actionStyles.remove}`}
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        )}
                       </div>
                     ) : (
                       <div className="text-xs text-gray-600 text-center py-4">

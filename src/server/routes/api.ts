@@ -160,6 +160,7 @@ api.post('/decision', async (c) => {
       decisionKey,
       JSON.stringify({
         action: body.action,
+        reason: body.reason,
         flair: body.flair,
         moderatorNote: body.moderatorNote,
         moderator: username,
