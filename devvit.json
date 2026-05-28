@@ -43,7 +43,7 @@
   "permissions": {
     "http": {
       "enable": true,
-      "domains": ["api.deepseek.com"]
+      "domains": ["api.openai.com"]
     }
   },
   "dev": {

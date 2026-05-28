@@ -1,6 +1,6 @@
 import { redis } from '@devvit/web/server';
 import type { AIAnalysisOutput, LightAIOutput, ModerationSignals, RiskScore, ModPrecedent } from '../../shared/types';
-import { DEEPSEEK_API_KEY } from './api-key';
+import { OPENAI_API_KEY } from './api-key';
 
 // ═══════════════════════════════════════════════════════════════════════
 // Types
@@ -19,17 +19,15 @@ export interface AIAnalysisInput {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// DeepSeek API Config
+// OpenAI API Config
 // ═══════════════════════════════════════════════════════════════════════
 
-const DEEPSEEK_ENDPOINT = 'https://api.deepseek.com/v1/chat/completions';
-const DEEPSEEK_MODEL = 'deepseek-chat';
+const OPENAI_ENDPOINT = 'https://api.openai.com/v1/chat/completions';
+const OPENAI_MODEL = 'gpt-4o-mini';
 const AI_TIMEOUT_MS = 5000;
 
 function getAPIKey(): string | null {
-  return DEEPSEEK_API_KEY && DEEPSEEK_API_KEY !== 'sk-your-key-here'
-    ? DEEPSEEK_API_KEY
-    : null;
+  return OPENAI_API_KEY || null;
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -249,10 +247,10 @@ function validateAIOutput(parsed: unknown): AIAnalysisOutput | null {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// DeepSeek API Call Helper
+// OpenAI API Call Helper
 // ═══════════════════════════════════════════════════════════════════════
 
-async function callDeepSeek(
+async function callAI(
   systemPrompt: string,
   userPrompt: string,
   maxTokens: number,
@@ -265,14 +263,14 @@ async function callDeepSeek(
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const res = await fetch(DEEPSEEK_ENDPOINT, {
+    const res = await fetch(OPENAI_ENDPOINT, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: DEEPSEEK_MODEL,
+        model: OPENAI_MODEL,
         max_tokens: maxTokens,
         messages: [
           { role: 'system', content: systemPrompt },
@@ -285,7 +283,7 @@ async function callDeepSeek(
     clearTimeout(timeout);
 
     if (!res.ok) {
-      console.error('DeepSeek API error:', res.status);
+      console.error('OpenAI API error:', res.status);
       return null;
     }
 
@@ -294,9 +292,9 @@ async function callDeepSeek(
   } catch (err) {
     clearTimeout(timeout);
     if (err instanceof DOMException && err.name === 'AbortError') {
-      console.warn('DeepSeek call timed out after', timeoutMs, 'ms');
+      console.warn('OpenAI call timed out after', timeoutMs, 'ms');
     } else {
-      console.error('DeepSeek call failed:', err instanceof Error ? err.message : err);
+      console.error('OpenAI call failed:', err instanceof Error ? err.message : err);
     }
     return null;
   }
@@ -326,7 +324,7 @@ export async function callLightAI(input: {
 
   const ruleNames = input.matchedRules.map((r) => `${r.name} (${r.severity})`).join(', ') || 'none';
 
-  const text = await callDeepSeek(
+  const text = await callAI(
     'Triage scanner. One sentence. JSON only. Use uncertainty language.',
     `Quick moderation scan:\nContent: "${input.title || '(comment)'} ${input.body.slice(0, 300)}"\nBy: ${input.author}\nRules matched: ${ruleNames}\nRisk score: ${input.riskScore}/100\n\nRespond with ONLY this JSON (no other text):\n{"summary":"1-sentence neutral summary","needs_deep_review":true/false,"primary_concern":"<single phrase or null>","confidence":0.0-1.0}`,
     100,
@@ -360,7 +358,7 @@ export async function callAIForDeepAnalysis(input: AIAnalysisInput): Promise<AIA
   const systemWithExamples = SYSTEM_PROMPT + '\n\n' + FEW_SHOT_EXAMPLES;
   const prompt = buildUserPrompt(input);
 
-  const text = await callDeepSeek(systemWithExamples, prompt, 400, AI_TIMEOUT_MS);
+  const text = await callAI(systemWithExamples, prompt, 400, AI_TIMEOUT_MS);
   if (!text) {
     await recordAIFailure();
     return null;

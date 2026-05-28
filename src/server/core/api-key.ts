@@ -1,3 +1,3 @@
-// 在这里填入你的 DeepSeek API Key
-// 这个文件已被 .gitignore 忽略，不会提交到 git
-export const DEEPSEEK_API_KEY = 'test';
+// OpenAI API Key
+// 设置方式: OPENAI_API_KEY=sk-xxx npm start
+export const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
